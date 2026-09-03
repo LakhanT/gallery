@@ -37,7 +37,8 @@ let dragDepth = 0;
 let toastTimer = 0;
 let busy = false;
 let faceMatches = null;
-let scanToken = 0;
+let sharedFaceIndex = {};
+let scanRunning = false;
 
 function showToast(message) {
   toast.textContent = message;
@@ -456,38 +457,73 @@ function step(delta) {
   paintViewer();
 }
 
+function currentFaceIndex() {
+  return sharedFaceIndex;
+}
+
+function withTimeout(promise, ms, message) {
+  let timer = 0;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = window.setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => window.clearTimeout(timer));
+}
+
+async function scanOnePhoto(photo) {
+  const faces = await withTimeout(
+    detectFacesFromSource(photo.url),
+    20000,
+    `Timed out on ${photo.name}`
+  );
+  const stored = await withTimeout(
+    saveFaceRecord(photo.id, faces),
+    15000,
+    `Could not save ${photo.name}`
+  );
+  sharedFaceIndex[photo.id] = { faces: stored, version: SCAN_VERSION };
+}
+
 async function scanGalleryFaces() {
-  const token = (scanToken += 1);
+  if (scanRunning) return sharedFaceIndex;
+  scanRunning = true;
   try {
     await loadFaceModels();
-    let index = await loadFaceIndex();
-    const pending = photos.filter((photo) => index[photo.id]?.version !== SCAN_VERSION);
+    try {
+      sharedFaceIndex = { ...sharedFaceIndex, ...(await loadFaceIndex()) };
+    } catch (error) {
+      showToast(error.message || "Could not load saved faces");
+    }
+    const pending = photos.filter((photo) => sharedFaceIndex[photo.id]?.version !== SCAN_VERSION);
     if (!pending.length) {
       scanStatus.hidden = true;
-      return index;
+      return sharedFaceIndex;
     }
     scanStatus.hidden = false;
     for (let i = 0; i < pending.length; i += 1) {
-      if (token !== scanToken) return index;
       const photo = pending[i];
-      scanStatus.textContent = `Scanning faces in dumps… ${i + 1} of ${pending.length}`;
+      scanStatus.textContent = `Scanning faces… ${i + 1} of ${pending.length}. You can still search.`;
       try {
-        const faces = await detectFacesFromSource(photo.url);
-        await saveFaceRecord(photo.id, faces);
-        index[photo.id] = { faces, version: SCAN_VERSION };
-      } catch (error) {
-        scanStatus.textContent = `Retry later: ${photo.name}`;
+        await scanOnePhoto(photo);
+      } catch {
+        try {
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+          await scanOnePhoto(photo);
+        } catch {
+          scanStatus.textContent = `Skipped ${photo.name} — will retry on next visit`;
+        }
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 40));
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
     }
-    if (token === scanToken) scanStatus.hidden = true;
-    return index;
+    scanStatus.hidden = true;
+    return sharedFaceIndex;
   } catch (error) {
-    if (token === scanToken) {
-      scanStatus.hidden = true;
-      showToast(error.message || "Face scanning failed");
-    }
+    scanStatus.hidden = true;
+    showToast(error.message || "Face scanning failed");
     throw error;
+  } finally {
+    scanRunning = false;
   }
 }
 
@@ -531,7 +567,13 @@ async function searchByFace(file) {
   setBusy(true);
   showToast("Looking for that face in the dumps…");
   try {
-    const index = await scanGalleryFaces();
+    await loadFaceModels();
+    if (!scanRunning) scanGalleryFaces().catch(() => {});
+    try {
+      sharedFaceIndex = { ...sharedFaceIndex, ...(await loadFaceIndex()) };
+    } catch {
+      /* use whatever is already scanned in this tab */
+    }
     const faces = await detectFacesFromSource(file);
     if (!faces.length) {
       showToast("No face found in that photo");
@@ -539,10 +581,15 @@ async function searchByFace(file) {
     }
     const query = faces.length === 1 ? faces[0] : await pickQueryFace(faces);
     if (!query) return;
-    const matches = matchPhotos(query.descriptors, index, photos);
+    const matches = matchPhotos(query.descriptors, currentFaceIndex(), photos);
     if (!matches.length) {
       clearFaceSearch();
-      showToast("No confident match in the dumps");
+      const indexed = photos.filter((photo) => sharedFaceIndex[photo.id]?.version === SCAN_VERSION).length;
+      showToast(
+        indexed < photos.length
+          ? `No match yet — still indexing ${indexed} of ${photos.length} photos`
+          : "No confident match in the dumps"
+      );
       return;
     }
     faceMatches = new Set(matches.map((row) => row.photo.id));

@@ -2,7 +2,8 @@ const MODEL_URL = "/models";
 export const SCAN_VERSION = 3;
 const MATCH_DISTANCE = 0.52;
 const MIN_FACE_SIZE = 24;
-const MIN_SIDE = 416;
+const MIN_SIDE = 320;
+const MAX_SIDE = 720;
 const MEDIAPIPE_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm";
 const MEDIAPIPE_MODEL =
   "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/latest/blaze_face_full_range.tflite";
@@ -69,7 +70,7 @@ function canvasFromBitmap(bitmap) {
   const longest = Math.max(bitmap.width, bitmap.height);
   const shortest = Math.min(bitmap.width, bitmap.height);
   let scale = shortest < MIN_SIDE ? MIN_SIDE / shortest : 1;
-  if (longest * scale > 960) scale = 960 / longest;
+  if (longest * scale > MAX_SIDE) scale = MAX_SIDE / longest;
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale));
   canvas.height = Math.max(1, Math.round(bitmap.height * scale));
@@ -166,13 +167,16 @@ function mediaPipeBoxes(canvas) {
 async function faceApiBoxes(api, canvas) {
   const tiny = await api.detectAllFaces(
     canvas,
-    new api.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.15 })
+    new api.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.15 })
   );
-  const ssd = await api.detectAllFaces(
-    canvas,
-    new api.SsdMobilenetv1Options({ minConfidence: 0.15 })
-  );
-  return [...tiny, ...ssd]
+  let detected = tiny;
+  if (!detected.length) {
+    detected = await api.detectAllFaces(
+      canvas,
+      new api.SsdMobilenetv1Options({ minConfidence: 0.2 })
+    );
+  }
+  return detected
     .map((item) => item.box || item.detection?.box)
     .filter(Boolean)
     .map((box) => ({ x: box.x, y: box.y, width: box.width, height: box.height }))
@@ -207,38 +211,42 @@ async function descriptorFromCrop(api, crop) {
   return Array.from(desc);
 }
 
+function compactDescriptor(values) {
+  return values.map((value) => Math.round(Number(value) * 1e6) / 1e6);
+}
+
 async function descriptorsForBox(api, canvas, box) {
-  const crop = cropBox(canvas, box, 0.5);
-  const views = [
-    crop,
-    flipHorizontal(crop),
-    rotateCanvas(crop, -20),
-    rotateCanvas(crop, 20),
-    rotateCanvas(crop, -35),
-    rotateCanvas(crop, 35),
-  ];
+  const crop = cropBox(canvas, box, 0.45);
   const values = [];
-  for (const view of views) {
+  for (const view of [crop, flipHorizontal(crop)]) {
     const desc = await descriptorFromCrop(api, view);
-    if (desc?.length) values.push(desc);
+    if (desc?.length) values.push(compactDescriptor(desc));
   }
   return values;
 }
 
+export function flattenFaceRecords(faces) {
+  return (faces || []).flatMap((face) => {
+    const descriptors = (face.descriptors || (face.descriptor ? [face.descriptor] : []))
+      .filter((item) => item?.length)
+      .slice(0, 2);
+    return descriptors.map((descriptor) => ({
+      descriptor: compactDescriptor(descriptor),
+      box: face.box,
+    }));
+  });
+}
+
+function storedDescriptors(face) {
+  if (Array.isArray(face?.descriptors) && face.descriptors.length) return face.descriptors;
+  if (face?.descriptor) return [face.descriptor];
+  return [];
+}
+
 async function boxesOnCanvas(api, canvas) {
   const fromPose = mediaPipeBoxes(canvas);
-  const fromApi = await faceApiBoxes(api, canvas);
-  const flipped = flipHorizontal(canvas);
-  const fromFlipped = [
-    ...mediaPipeBoxes(flipped),
-    ...(await faceApiBoxes(api, flipped)),
-  ].map((box) => ({
-    x: canvas.width - box.x - box.width,
-    y: box.y,
-    width: box.width,
-    height: box.height,
-  }));
-  return mergeBoxes([...fromPose, ...fromApi, ...fromFlipped]);
+  if (fromPose.length) return mergeBoxes(fromPose);
+  return mergeBoxes(await faceApiBoxes(api, canvas));
 }
 
 export async function detectFacesFromSource(source) {
@@ -276,9 +284,11 @@ export function matchPhotos(queryDescriptors, index, photos) {
     const faces = record?.faces || [];
     let best = Infinity;
     for (const face of faces) {
-      for (const query of queries) {
-        const distance = faceDistance(query, face.descriptor);
-        if (distance < best) best = distance;
+      for (const stored of storedDescriptors(face)) {
+        for (const query of queries) {
+          const distance = faceDistance(query, stored);
+          if (distance < best) best = distance;
+        }
       }
     }
     if (best <= MATCH_DISTANCE) {
@@ -299,21 +309,20 @@ export async function loadFaceIndex() {
 }
 
 export async function saveFaceRecord(id, faces) {
-  const payload = faces.flatMap((face) =>
-    (face.descriptors || (face.descriptor ? [face.descriptor] : [])).map((descriptor) => ({
-      descriptor,
-      box: face.box,
-    }))
-  );
-  const response = await fetch("/api/faces", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, faces: payload, version: SCAN_VERSION }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.error || "Could not save face data");
+  const payload = flattenFaceRecords(faces);
+  let lastError = new Error("Could not save face data");
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch("/api/faces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, faces: payload, version: SCAN_VERSION }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) return payload;
+    lastError = new Error(data.error || "Could not save face data");
+    await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)));
   }
+  throw lastError;
 }
 
 export async function deleteFaceRecord(id) {
