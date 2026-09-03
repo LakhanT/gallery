@@ -23,7 +23,7 @@ export default {
     port: 5173,
   },
   optimizeDeps: {
-    include: ["@vladmandic/face-api"],
+    include: ["@vladmandic/face-api", "@mediapipe/tasks-vision"],
   },
   plugins: [
     {

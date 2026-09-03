@@ -539,7 +539,7 @@ async function searchByFace(file) {
     }
     const query = faces.length === 1 ? faces[0] : await pickQueryFace(faces);
     if (!query) return;
-    const matches = matchPhotos(query.descriptor, index, photos);
+    const matches = matchPhotos(query.descriptors, index, photos);
     if (!matches.length) {
       clearFaceSearch();
       showToast("No confident match in the dumps");
