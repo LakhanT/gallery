@@ -69,6 +69,16 @@ async function loadDumps() {
   }));
 }
 
+async function loadSamples() {
+  const response = await fetch("/samples/manifest.json");
+  if (!response.ok) return [];
+  const items = await response.json();
+  return items.map((item) => ({
+    ...item,
+    sample: true,
+  }));
+}
+
 async function loadUploads() {
   const response = await fetch("/api/photos");
   if (!response.ok) {
@@ -653,4 +663,6 @@ window.addEventListener("drop", async (event) => {
   await ingest(event.dataTransfer.files);
 });
 
-refresh();
+refresh().catch((error) => {
+  showToast(error.message || "Could not load the gallery");
+});
