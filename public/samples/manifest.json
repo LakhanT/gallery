@@ -1,0 +1,32 @@
+[
+  {
+    "id": "sample-alpine-lake",
+    "name": "Alpine lake",
+    "url": "/samples/alpine-lake.jpg"
+  },
+  {
+    "id": "sample-forest-light",
+    "name": "Forest light",
+    "url": "/samples/forest-light.jpg"
+  },
+  {
+    "id": "sample-fog-hills",
+    "name": "Fog over the hills",
+    "url": "/samples/fog-hills.jpg"
+  },
+  {
+    "id": "sample-sunlit-valley",
+    "name": "Sunlit valley",
+    "url": "/samples/sunlit-valley.jpg"
+  },
+  {
+    "id": "sample-quiet-interior",
+    "name": "Quiet interior",
+    "url": "/samples/quiet-interior.jpg"
+  },
+  {
+    "id": "sample-studio-still",
+    "name": "Studio still",
+    "url": "/samples/studio-still.jpg"
+  }
+]

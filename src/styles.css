@@ -90,6 +90,11 @@ body {
   color: #fff;
 }
 
+.btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .btn:focus-visible,
 .nav:focus-visible {
   outline: 3px solid var(--accent);

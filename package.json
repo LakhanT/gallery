@@ -2,7 +2,7 @@
   "name": "gallery",
   "private": true,
   "version": "1.0.0",
-  "description": "A minimal photo gallery. Upload in the browser and download any photo individually.",
+  "description": "A shared photo gallery. Upload in the browser and everyone with the site sees the same photos.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -20,5 +20,8 @@
   },
   "devDependencies": {
     "vite": "^6.3.5"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.0"
   }
 }

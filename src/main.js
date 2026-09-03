@@ -1,5 +1,3 @@
-import { addPhotos, deletePhoto, getPhotos } from "./db.js";
-
 const fileInput = document.querySelector("#file-input");
 const uploadBtn = document.querySelector("#upload-btn");
 const emptyUpload = document.querySelector("#empty-upload");
@@ -16,23 +14,11 @@ const viewerDelete = document.querySelector("#viewer-delete");
 const prevBtn = document.querySelector("#prev");
 const nextBtn = document.querySelector("#next");
 
-const urls = new Map();
 let photos = [];
 let activeIndex = 0;
 let dragDepth = 0;
 let toastTimer = 0;
-
-function objectUrl(photo) {
-  if (!urls.has(photo.id)) {
-    urls.set(photo.id, URL.createObjectURL(photo.blob));
-  }
-  return urls.get(photo.id);
-}
-
-function revokeAll() {
-  urls.forEach((url) => URL.revokeObjectURL(url));
-  urls.clear();
-}
+let busy = false;
 
 function showToast(message) {
   toast.textContent = message;
@@ -40,34 +26,110 @@ function showToast(message) {
   window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => {
     toast.hidden = true;
-  }, 2200);
+  }, 2400);
 }
 
-function downloadPhoto(photo) {
-  const link = document.createElement("a");
-  link.href = objectUrl(photo);
-  link.download = photo.name || "photograph.jpg";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  showToast(`Saved ${photo.name}`);
+function setBusy(state) {
+  busy = state;
+  uploadBtn.disabled = state;
+  emptyUpload.disabled = state;
+}
+
+async function loadSamples() {
+  const response = await fetch("/samples/manifest.json");
+  if (!response.ok) return [];
+  const items = await response.json();
+  return items.map((item) => ({
+    ...item,
+    sample: true,
+  }));
+}
+
+async function loadUploads() {
+  const response = await fetch("/api/photos");
+  if (!response.ok) {
+    throw new Error("Could not load the shared gallery");
+  }
+  const data = await response.json();
+  return data.photos || [];
+}
+
+async function prepareImage(file) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const max = 1920;
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.86);
+    });
+    bitmap.close();
+    if (!blob) return file;
+    const name = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+    return new File([blob], name, { type: "image/jpeg" });
+  } catch {
+    return file;
+  }
+}
+
+async function uploadFile(file) {
+  const prepared = await prepareImage(file);
+  const form = new FormData();
+  form.append("file", prepared);
+  const response = await fetch("/api/photos", {
+    method: "POST",
+    body: form,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `Could not upload ${file.name}`);
+  }
+}
+
+async function downloadPhoto(photo) {
+  try {
+    const response = await fetch(photo.url);
+    if (!response.ok) throw new Error("Download failed");
+    const blob = await response.blob();
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = photo.name || "photo.jpg";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(href);
+    showToast(`Saved ${photo.name}`);
+  } catch {
+    const link = document.createElement("a");
+    link.href = photo.url;
+    link.download = photo.name || "photo.jpg";
+    link.target = "_blank";
+    link.rel = "noopener";
+    document.body.append(link);
+    link.click();
+    link.remove();
+  }
 }
 
 function render() {
-  const hadUrls = urls.size > 0;
-  if (hadUrls) revokeAll();
-
   if (!photos.length) {
     empty.hidden = false;
     grid.hidden = true;
-    count.textContent = "Upload photos. Download any photo you want.";
+    count.textContent = "Shared gallery — everyone with this site sees the same photos.";
     return;
   }
 
   empty.hidden = true;
   grid.hidden = false;
   count.textContent =
-    photos.length === 1 ? "1 photo" : `${photos.length} photos`;
+    photos.length === 1
+      ? "1 photo · shared with everyone on this site"
+      : `${photos.length} photos · shared with everyone on this site`;
 
   grid.replaceChildren(
     ...photos.map((photo, index) => {
@@ -75,7 +137,7 @@ function render() {
       card.className = "card";
 
       const img = document.createElement("img");
-      img.src = objectUrl(photo);
+      img.src = photo.url;
       img.alt = photo.name;
       img.loading = "lazy";
       img.tabIndex = 0;
@@ -113,19 +175,43 @@ function render() {
 }
 
 async function refresh() {
-  photos = await getPhotos();
+  const samples = await loadSamples();
+  let uploads = [];
+  try {
+    uploads = await loadUploads();
+  } catch (error) {
+    showToast(error.message);
+  }
+  photos = [...uploads, ...samples];
   render();
 }
 
 async function ingest(fileList) {
+  if (busy) return;
   const files = [...fileList].filter((file) => file.type.startsWith("image/"));
   if (!files.length) {
     showToast("Those files are not photos");
     return;
   }
-  await addPhotos(files);
-  await refresh();
-  showToast(files.length === 1 ? "Photo added" : `${files.length} photos added`);
+
+  setBusy(true);
+  showToast(files.length === 1 ? "Uploading photo…" : `Uploading ${files.length} photos…`);
+  try {
+    for (const file of files) {
+      await uploadFile(file);
+    }
+    await refresh();
+    showToast(
+      files.length === 1
+        ? "Photo is live for everyone"
+        : `${files.length} photos are live for everyone`
+    );
+  } catch (error) {
+    showToast(error.message);
+    await refresh();
+  } finally {
+    setBusy(false);
+  }
 }
 
 function openViewer(index) {
@@ -140,9 +226,12 @@ function paintViewer() {
     viewer.close();
     return;
   }
-  viewerImage.src = objectUrl(photo);
+  viewerImage.src = photo.url;
   viewerImage.alt = photo.name;
-  viewerCaption.textContent = photo.name;
+  viewerCaption.textContent = photo.sample
+    ? `${photo.name} · starter photo`
+    : photo.name;
+  viewerDelete.hidden = Boolean(photo.sample);
 }
 
 function step(delta) {
@@ -165,17 +254,25 @@ viewerDownload.addEventListener("click", () => {
 
 viewerDelete.addEventListener("click", async () => {
   const photo = photos[activeIndex];
-  if (!photo) return;
-  await deletePhoto(photo.id);
-  await refresh();
-  if (!photos.length) {
-    viewer.close();
-    showToast("Photo removed");
-    return;
+  if (!photo || photo.sample) return;
+  try {
+    const response = await fetch(`/api/photos?url=${encodeURIComponent(photo.url)}`, {
+      method: "DELETE",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Could not remove photo");
+    await refresh();
+    if (!photos.length) {
+      viewer.close();
+      showToast("Photo removed for everyone");
+      return;
+    }
+    activeIndex = Math.min(activeIndex, photos.length - 1);
+    paintViewer();
+    showToast("Photo removed for everyone");
+  } catch (error) {
+    showToast(error.message);
   }
-  activeIndex = Math.min(activeIndex, photos.length - 1);
-  paintViewer();
-  showToast("Photo removed");
 });
 
 prevBtn.addEventListener("click", () => step(-1));

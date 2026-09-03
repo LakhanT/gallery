@@ -1,8 +1,8 @@
 # Gallery
 
-A minimal photo gallery you can run in the browser. Upload photographs, browse them in a clean grid, open any image full-size, and download it on its own.
+A shared photo gallery. Anyone with the site can browse the collection, upload new photographs, and download any image on its own.
 
-Photos stay on the device. Nothing is sent to a server.
+Uploads are stored in Vercel Blob, so every visitor sees the same gallery.
 
 **Live demo:** [gallery-nine-sigma-24.vercel.app](https://gallery-nine-sigma-24.vercel.app)
 
@@ -13,12 +13,12 @@ Photos stay on the device. Nothing is sent to a server.
 
 ## Features
 
-- **Upload** — choose files or drag photos onto the page
-- **Browse** — a clear grid with the filename on every card
+- **Shared uploads** — a photo added by one visitor appears for everyone
+- **Starter photos** — six sample images from [Unsplash](https://unsplash.com) ship with the gallery
+- **Browse** — a clear grid with the name on every card
 - **View** — click a photo to open it larger; use arrow keys to move between images
-- **Download** — save any photo individually, at original quality
-- **Remove** — delete a photo from the collection
-- **Private by default** — storage is local (IndexedDB), so a refresh keeps the gallery without an account
+- **Download** — save any photo individually
+- **Remove** — delete an uploaded photo for every visitor (starter photos stay)
 
 ## Stack
 
@@ -26,9 +26,8 @@ Photos stay on the device. Nothing is sent to a server.
 | --- | --- |
 | Build | [Vite](https://vite.dev) 6 |
 | UI | Semantic HTML, CSS, vanilla JavaScript |
-| Persistence | IndexedDB in the browser |
-
-No backend, database, or cloud storage. The deployed site is a static app.
+| API | Vercel Edge Function (`/api/photos`) |
+| Storage | [Vercel Blob](https://vercel.com/storage/blob) (public) |
 
 ## Quick start
 
@@ -36,8 +35,11 @@ Requirements: Node.js 18 or newer.
 
 ```bash
 npm install
+npx vercel env pull .env.local
 npm run dev
 ```
+
+`vercel env pull` copies `BLOB_READ_WRITE_TOKEN` so local uploads go to the same shared store as production.
 
 Open the URL Vite prints (usually `http://localhost:5173`).
 
@@ -49,34 +51,38 @@ Open the URL Vite prints (usually `http://localhost:5173`).
 
 ## How it works
 
-1. Selected image files are stored as blobs in IndexedDB.
-2. The grid reads that store and renders object URLs for each photo.
-3. Download creates a temporary link to the original blob, so the saved file matches what you uploaded.
-4. Clearing site data for this origin removes the gallery.
+1. Starter photographs live in `public/samples/` and always appear in the grid.
+2. New uploads are posted to `/api/photos` and stored in Vercel Blob with public URLs.
+3. Every browser loads the same blob list, so the gallery is shared.
+4. Download fetches the image file and saves it on the visitor's device.
+
+This is an open gallery: anyone with the link can add or remove uploaded photos.
 
 ## Project layout
 
 ```
 .
-├── index.html          App shell
+├── api/photos.js           List, upload, and delete shared photos
+├── public/samples/         Starter photographs
+├── index.html              App shell
 ├── src/
-│   ├── main.js         Upload, grid, viewer, download
-│   ├── db.js           IndexedDB helpers
-│   └── styles.css      Layout and visual system
+│   ├── main.js             Upload, grid, viewer, download
+│   └── styles.css          Layout and visual system
 ├── vite.config.js
 └── package.json
 ```
 
+## Sample photographs
+
+Six starter images from [Unsplash](https://unsplash.com) live in `public/samples/`: alpine lake, forest light, fog over the hills, sunlit valley, a quiet interior, and a studio still.
+
 ## Deploy
 
-This project is a static Vite app. Vercel, Netlify, or any static host works.
+The app is built for Vercel. Create a public Blob store and link it to the project so `BLOB_READ_WRITE_TOKEN` is available in Production.
 
-**Vercel**
-
-1. Import the GitHub repository.
-2. Framework preset: Vite (auto-detected).
-3. Build command: `npm run build`
-4. Output directory: `dist`
+1. Framework preset: Vite
+2. Build command: `npm run build`
+3. Output directory: `dist`
 
 ## License
 

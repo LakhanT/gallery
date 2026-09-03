@@ -8,3 +8,5 @@ dist
 *.log
 .vscode
 .idea
+.data
+.env*
