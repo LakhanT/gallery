@@ -1,5 +1,6 @@
 import { loadEnv } from "vite";
 import { addPhoto, getGallery, removePhoto, renamePhoto } from "./api/photos.js";
+import { getFaceIndex, removeFaceRecord, upsertFaceRecord } from "./api/faces.js";
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -21,6 +22,9 @@ export default {
     host: true,
     port: 5173,
   },
+  optimizeDeps: {
+    include: ["@vladmandic/face-api"],
+  },
   plugins: [
     {
       name: "gallery-api",
@@ -33,37 +37,62 @@ export default {
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
           const path = req.url?.split("?")[0];
-          if (path !== "/api/photos") {
-            next();
-            return;
-          }
-
           try {
-            if (req.method === "GET") {
-              sendJson(res, 200, await getGallery());
+            if (path === "/api/photos") {
+              if (req.method === "GET") {
+                sendJson(res, 200, await getGallery());
+                return;
+              }
+
+              if (req.method === "POST") {
+                const body = JSON.parse((await readBody(req)) || "{}");
+                sendJson(res, 200, { photo: await addPhoto(body) });
+                return;
+              }
+
+              if (req.method === "PATCH") {
+                const body = JSON.parse((await readBody(req)) || "{}");
+                sendJson(res, 200, { name: await renamePhoto(body.id, body.name) });
+                return;
+              }
+
+              if (req.method === "DELETE") {
+                const url = new URL(req.url, "http://localhost");
+                await removePhoto(url.searchParams.get("url"));
+                sendJson(res, 200, { ok: true });
+                return;
+              }
+
+              sendJson(res, 405, { error: "Method not allowed." });
               return;
             }
 
-            if (req.method === "POST") {
-              const body = JSON.parse((await readBody(req)) || "{}");
-              sendJson(res, 200, { photo: await addPhoto(body) });
+            if (path === "/api/faces") {
+              if (req.method === "GET") {
+                sendJson(res, 200, { index: await getFaceIndex() });
+                return;
+              }
+
+              if (req.method === "POST") {
+                const body = JSON.parse((await readBody(req)) || "{}");
+                sendJson(res, 200, {
+                  record: await upsertFaceRecord(body.id, body.faces),
+                });
+                return;
+              }
+
+              if (req.method === "DELETE") {
+                const url = new URL(req.url, "http://localhost");
+                await removeFaceRecord(url.searchParams.get("id"));
+                sendJson(res, 200, { ok: true });
+                return;
+              }
+
+              sendJson(res, 405, { error: "Method not allowed." });
               return;
             }
 
-            if (req.method === "PATCH") {
-              const body = JSON.parse((await readBody(req)) || "{}");
-              sendJson(res, 200, { name: await renamePhoto(body.id, body.name) });
-              return;
-            }
-
-            if (req.method === "DELETE") {
-              const url = new URL(req.url, "http://localhost");
-              await removePhoto(url.searchParams.get("url"));
-              sendJson(res, 200, { ok: true });
-              return;
-            }
-
-            sendJson(res, 405, { error: "Method not allowed." });
+            next();
           } catch (error) {
             sendJson(res, 400, { error: error.message });
           }

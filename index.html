@@ -22,7 +22,10 @@
         <h1>Gallery</h1>
         <p id="count">Shared gallery — everyone with this site sees the same photos.</p>
       </div>
-      <button class="btn btn-solid" type="button" id="upload-btn">Add photos</button>
+      <div class="actions">
+        <button class="btn" type="button" id="find-btn">Find a face</button>
+        <button class="btn btn-solid" type="button" id="upload-btn">Add photos</button>
+      </div>
       <input
         id="file-input"
         type="file"
@@ -30,9 +33,20 @@
         multiple
         hidden
       />
+      <input
+        id="face-input"
+        type="file"
+        accept="image/*"
+        hidden
+      />
     </header>
 
     <main>
+      <p class="scan" id="scan-status" hidden></p>
+      <div class="search-bar" id="search-bar" hidden>
+        <p id="search-label"></p>
+        <button class="btn" type="button" id="search-clear">Show all dumps</button>
+      </div>
       <section class="empty" id="empty">
         <h2>No photos yet</h2>
         <p>Upload a photo and everyone who opens this site will see it. Starter photos are already in the gallery.</p>
@@ -54,6 +68,15 @@
       <img id="viewer-image" alt="" />
       <button class="nav next" type="button" id="next" aria-label="Next photo">›</button>
       <p class="caption" id="viewer-caption"></p>
+    </dialog>
+
+    <dialog class="picker" id="face-picker">
+      <form method="dialog" class="picker-bar">
+        <button class="btn" value="cancel">Cancel</button>
+      </form>
+      <h2>Which face?</h2>
+      <p>That photo has more than one person. Choose who to find in the dumps.</p>
+      <div class="face-choices" id="face-choices"></div>
     </dialog>
 
     <div class="toast" id="toast" hidden></div>

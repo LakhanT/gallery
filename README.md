@@ -18,6 +18,7 @@ Uploads are stored in Vercel Blob, so every visitor sees the same gallery.
 - **Browse** — a clear grid with the name on every card
 - **View** — click a photo to open it larger; use arrow keys to move between images
 - **Download** — save any photo individually
+- **Find a face** — upload a photo of someone and match them across every dump in the gallery
 - **Remove** — delete an uploaded photo for every visitor (starter photos stay)
 
 ## Stack
@@ -26,8 +27,9 @@ Uploads are stored in Vercel Blob, so every visitor sees the same gallery.
 | --- | --- |
 | Build | [Vite](https://vite.dev) 6 |
 | UI | Semantic HTML, CSS, vanilla JavaScript |
-| API | Vercel Edge Function (`/api/photos`) |
+| API | Vercel Functions (`/api/photos`, `/api/faces`) |
 | Storage | [Vercel Blob](https://vercel.com/storage/blob) (public) |
+| Face search | [FaceAPI](https://github.com/vladmandic/face-api) in the browser (TensorFlow.js) |
 
 ## Quick start
 
@@ -55,6 +57,7 @@ Open the URL Vite prints (usually `http://localhost:5173`).
 2. New uploads are posted to `/api/photos` and stored in Vercel Blob with public URLs.
 3. Every browser loads the same blob list, so the gallery is shared.
 4. Download fetches the image file and saves it on the visitor's device.
+5. Face search runs in the browser: each dump is scanned once, embeddings are stored in Blob, then a query face is compared against that index.
 
 This is an open gallery: anyone with the link can add or remove uploaded photos.
 
@@ -63,10 +66,13 @@ This is an open gallery: anyone with the link can add or remove uploaded photos.
 ```
 .
 ├── api/photos.js           List, upload, and delete shared photos
+├── api/faces.js            Shared face embeddings
+├── public/models/          FaceAPI weights
 ├── public/samples/         Starter photographs
 ├── index.html              App shell
 ├── src/
-│   ├── main.js             Upload, grid, viewer, download
+│   ├── main.js             Upload, grid, viewer, download, face search
+│   ├── faces.js            Detect and match faces
 │   └── styles.css          Layout and visual system
 ├── vite.config.js
 └── package.json

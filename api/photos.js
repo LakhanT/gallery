@@ -1,4 +1,5 @@
 import { del, list, put } from "@vercel/blob";
+import { removeFaceRecord } from "./faces.js";
 
 const PREFIX = "gallery/";
 const NAMES_PATH = "meta/names.json";
@@ -116,6 +117,7 @@ export async function removePhoto(target) {
     delete names[target];
     await saveNames(names);
   }
+  await removeFaceRecord(target);
 }
 
 export default async function handler(req, res) {

@@ -1,9 +1,25 @@
+import {
+  detectFacesFromSource,
+  loadFaceIndex,
+  loadFaceModels,
+  matchPhotos,
+  saveFaceRecord,
+} from "./faces.js";
+
 const fileInput = document.querySelector("#file-input");
+const faceInput = document.querySelector("#face-input");
 const uploadBtn = document.querySelector("#upload-btn");
+const findBtn = document.querySelector("#find-btn");
 const emptyUpload = document.querySelector("#empty-upload");
 const empty = document.querySelector("#empty");
 const grid = document.querySelector("#grid");
 const count = document.querySelector("#count");
+const scanStatus = document.querySelector("#scan-status");
+const searchBar = document.querySelector("#search-bar");
+const searchLabel = document.querySelector("#search-label");
+const searchClear = document.querySelector("#search-clear");
+const facePicker = document.querySelector("#face-picker");
+const faceChoices = document.querySelector("#face-choices");
 const dropVeil = document.querySelector("#drop-veil");
 const toast = document.querySelector("#toast");
 const viewer = document.querySelector("#viewer");
@@ -19,6 +35,9 @@ let activeIndex = 0;
 let dragDepth = 0;
 let toastTimer = 0;
 let busy = false;
+let faceMatches = null;
+let matchScores = new Map();
+let scanToken = 0;
 
 function showToast(message) {
   toast.textContent = message;
@@ -33,6 +52,12 @@ function setBusy(state) {
   busy = state;
   uploadBtn.disabled = state;
   emptyUpload.disabled = state;
+  findBtn.disabled = state;
+}
+
+function displayedPhotos() {
+  if (!faceMatches) return photos;
+  return photos.filter((photo) => faceMatches.has(photo.id));
 }
 
 async function loadSamples() {
@@ -224,24 +249,49 @@ async function downloadPhoto(photo) {
 }
 
 function render() {
+  const shown = displayedPhotos();
+
   if (!photos.length) {
     empty.hidden = false;
     grid.hidden = true;
+    searchBar.hidden = !faceMatches;
+    empty.querySelector("h2").textContent = "No photos yet";
+    empty.querySelector("p").textContent =
+      "Upload a photo and everyone who opens this site will see it. Starter photos are already in the gallery.";
+    emptyUpload.hidden = false;
     count.textContent = "Shared gallery — everyone with this site sees the same photos.";
     return;
   }
 
+  if (faceMatches && !shown.length) {
+    empty.hidden = false;
+    grid.hidden = true;
+    empty.querySelector("h2").textContent = "No matching dumps";
+    empty.querySelector("p").textContent =
+      "That face was not found in the gallery. Try a clearer photo, or show all dumps again.";
+    emptyUpload.hidden = true;
+    count.textContent = "0 matching dumps";
+    return;
+  }
+
   empty.hidden = true;
+  empty.querySelector("h2").textContent = "No photos yet";
+  empty.querySelector("p").textContent =
+    "Upload a photo and everyone who opens this site will see it. Starter photos are already in the gallery.";
+  emptyUpload.hidden = false;
   grid.hidden = false;
-  count.textContent =
-    photos.length === 1
+  count.textContent = faceMatches
+    ? shown.length === 1
+      ? "1 matching dump"
+      : `${shown.length} matching dumps`
+    : shown.length === 1
       ? "1 photo · shared with everyone on this site"
-      : `${photos.length} photos · shared with everyone on this site`;
+      : `${shown.length} photos · shared with everyone on this site`;
 
   grid.replaceChildren(
-    ...photos.map((photo, index) => {
+    ...shown.map((photo, index) => {
       const card = document.createElement("article");
-      card.className = "card";
+      card.className = faceMatches ? "card match" : "card";
       card.dataset.index = String(index);
       card.tabIndex = 0;
 
@@ -250,6 +300,14 @@ function render() {
       img.alt = photo.name;
       img.loading = "lazy";
       img.addEventListener("click", () => openViewer(index));
+
+      if (faceMatches) {
+        const tag = document.createElement("span");
+        tag.className = "match-tag";
+        const score = matchScores.get(photo.id);
+        tag.textContent = score ? `${score}% match` : "Match";
+        card.append(tag);
+      }
 
       const bar = document.createElement("div");
       bar.className = "card-bar";
@@ -320,7 +378,13 @@ async function refresh() {
       name: names[sample.id] || sample.name,
     })),
   ];
+  if (faceMatches) {
+    const ids = new Set(photos.map((photo) => photo.id));
+    faceMatches = new Set([...faceMatches].filter((id) => ids.has(id)));
+    if (!faceMatches.size) clearFaceSearch();
+  }
   render();
+  scanGalleryFaces().catch(() => {});
 }
 
 async function ingest(fileList) {
@@ -352,7 +416,10 @@ async function ingest(fileList) {
 }
 
 function openViewer(index) {
-  activeIndex = index;
+  const shown = displayedPhotos();
+  const photo = shown[index];
+  if (!photo) return;
+  activeIndex = photos.indexOf(photo);
   paintViewer();
   if (!viewer.open) viewer.showModal();
 }
@@ -372,16 +439,147 @@ function paintViewer() {
 }
 
 function step(delta) {
-  if (!photos.length) return;
-  activeIndex = (activeIndex + delta + photos.length) % photos.length;
+  const shown = displayedPhotos();
+  if (!shown.length) return;
+  const current = photos[activeIndex];
+  const from = Math.max(0, shown.indexOf(current));
+  const next = shown[(from + delta + shown.length) % shown.length];
+  activeIndex = photos.indexOf(next);
   paintViewer();
 }
 
+async function scanGalleryFaces() {
+  const token = (scanToken += 1);
+  try {
+    await loadFaceModels();
+    let index = await loadFaceIndex();
+    const pending = photos.filter((photo) => !index[photo.id]);
+    if (!pending.length) {
+      scanStatus.hidden = true;
+      return index;
+    }
+    scanStatus.hidden = false;
+    for (let i = 0; i < pending.length; i += 1) {
+      if (token !== scanToken) return index;
+      const photo = pending[i];
+      scanStatus.textContent = `Scanning faces in dumps… ${i + 1} of ${pending.length}`;
+      try {
+        const faces = await detectFacesFromSource(photo.url);
+        await saveFaceRecord(photo.id, faces);
+        index[photo.id] = { faces };
+      } catch {
+        try {
+          await saveFaceRecord(photo.id, []);
+        } catch {
+          /* keep going */
+        }
+        index[photo.id] = { faces: [] };
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 40));
+    }
+    if (token === scanToken) scanStatus.hidden = true;
+    return index;
+  } catch (error) {
+    if (token === scanToken) {
+      scanStatus.hidden = true;
+      showToast(error.message || "Face scanning failed");
+    }
+    throw error;
+  }
+}
+
+function matchPercent(distance) {
+  return Math.max(1, Math.min(99, Math.round((1 - distance / 0.7) * 100)));
+}
+
+function pickQueryFace(faces) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      if (facePicker.open) facePicker.close();
+      resolve(value);
+    };
+
+    faceChoices.replaceChildren(
+      ...faces.map((face, index) => {
+        const button = document.createElement("button");
+        button.className = "face-choice";
+        button.type = "button";
+        const img = document.createElement("img");
+        img.src = face.preview;
+        img.alt = `Face ${index + 1}`;
+        button.append(img);
+        button.addEventListener("click", () => finish(face));
+        return button;
+      })
+    );
+
+    facePicker.addEventListener("close", () => finish(null), { once: true });
+    facePicker.showModal();
+  });
+}
+
+function clearFaceSearch() {
+  faceMatches = null;
+  matchScores = new Map();
+  searchBar.hidden = true;
+  render();
+}
+
+async function searchByFace(file) {
+  if (busy) return;
+  setBusy(true);
+  showToast("Looking for that face in the dumps…");
+  try {
+    const index = await scanGalleryFaces();
+    const faces = await detectFacesFromSource(file);
+    if (!faces.length) {
+      showToast("No face found in that photo");
+      return;
+    }
+    const query = faces.length === 1 ? faces[0] : await pickQueryFace(faces);
+    if (!query) return;
+    const matches = matchPhotos(query.descriptor, index, photos);
+    if (!matches.length) {
+      faceMatches = new Set();
+      matchScores = new Map();
+      searchBar.hidden = false;
+      searchLabel.textContent = "No dumps matched that face";
+      render();
+      return;
+    }
+    faceMatches = new Set(matches.map((row) => row.photo.id));
+    matchScores = new Map(matches.map((row) => [row.photo.id, matchPercent(row.distance)]));
+    searchBar.hidden = false;
+    searchLabel.textContent =
+      matches.length === 1
+        ? "1 dump has this face"
+        : `${matches.length} dumps have this face`;
+    render();
+    showToast(
+      matches.length === 1 ? "Found 1 matching dump" : `Found ${matches.length} matching dumps`
+    );
+  } catch (error) {
+    showToast(error.message || "Face search failed");
+  } finally {
+    setBusy(false);
+  }
+}
+
 uploadBtn.addEventListener("click", () => fileInput.click());
+findBtn.addEventListener("click", () => faceInput.click());
 emptyUpload.addEventListener("click", () => fileInput.click());
+searchClear.addEventListener("click", () => clearFaceSearch());
 fileInput.addEventListener("change", async () => {
   await ingest(fileInput.files);
   fileInput.value = "";
+});
+faceInput.addEventListener("change", async () => {
+  const file = faceInput.files?.[0];
+  faceInput.value = "";
+  if (file) await searchByFace(file);
 });
 
 viewerDownload.addEventListener("click", () => {
@@ -436,7 +634,7 @@ document.addEventListener("keydown", (event) => {
     if (card) {
       const index = Number(card.dataset.index);
       const host = card.querySelector(".card-name");
-      startRename(photos[index], host);
+      startRename(displayedPhotos()[index], host);
     }
     return;
   }
