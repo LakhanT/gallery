@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gallery</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="drop-veil" id="drop-veil" hidden>
+      <p>Drop photos here</p>
+    </div>
+
+    <header class="top">
+      <div class="brand">
+        <h1>Gallery</h1>
+        <p id="count">Upload photos. Download any photo you want.</p>
+      </div>
+      <button class="btn btn-solid" type="button" id="upload-btn">Add photos</button>
+      <input
+        id="file-input"
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+      />
+    </header>
+
+    <main>
+      <section class="empty" id="empty">
+        <h2>No photos yet</h2>
+        <p>Click the button below, or drag photos onto this page. Each photo can be downloaded on its own.</p>
+        <button class="btn btn-solid" type="button" id="empty-upload">Choose photos</button>
+      </section>
+
+      <section class="grid" id="grid" hidden></section>
+    </main>
+
+    <dialog class="viewer" id="viewer">
+      <form method="dialog" class="viewer-bar">
+        <button class="btn" value="close" type="submit">Close</button>
+        <div class="viewer-actions">
+          <button class="btn btn-solid" type="button" id="viewer-download">Download</button>
+          <button class="btn btn-danger" type="button" id="viewer-delete">Remove</button>
+        </div>
+      </form>
+      <button class="nav prev" type="button" id="prev" aria-label="Previous photo">‹</button>
+      <img id="viewer-image" alt="" />
+      <button class="nav next" type="button" id="next" aria-label="Next photo">›</button>
+      <p class="caption" id="viewer-caption"></p>
+    </dialog>
+
+    <div class="toast" id="toast" hidden></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

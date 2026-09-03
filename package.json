@@ -1,0 +1,24 @@
+{
+  "name": "gallery",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A minimal photo gallery. Upload in the browser and download any photo individually.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LakhanT/gallery.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LakhanT/gallery/issues"
+  },
+  "homepage": "https://github.com/LakhanT/gallery#readme",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}
