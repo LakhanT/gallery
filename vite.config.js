@@ -1,30 +1,19 @@
 import { loadEnv } from "vite";
-import photosHandler from "./api/photos.js";
+import { addPhoto, listPhotos, removePhoto } from "./api/photos.js";
 
-function toWebRequest(req) {
-  const url = `http://${req.headers.host}${req.url}`;
-  const method = req.method || "GET";
-  const headers = req.headers;
-
-  if (method === "GET" || method === "HEAD") {
-    return Promise.resolve(new Request(url, { method, headers }));
-  }
-
+function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => {
-      resolve(
-        new Request(url, {
-          method,
-          headers,
-          body: Buffer.concat(chunks),
-          duplex: "half",
-        })
-      );
-    });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
     req.on("error", reject);
   });
+}
+
+function sendJson(res, status, data) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(data));
 }
 
 export default {
@@ -50,17 +39,27 @@ export default {
           }
 
           try {
-            const request = await toWebRequest(req);
-            const response = await photosHandler(request);
-            res.statusCode = response.status;
-            response.headers.forEach((value, key) => {
-              res.setHeader(key, value);
-            });
-            res.end(Buffer.from(await response.arrayBuffer()));
+            if (req.method === "GET") {
+              sendJson(res, 200, { photos: await listPhotos() });
+              return;
+            }
+
+            if (req.method === "POST") {
+              const body = JSON.parse((await readBody(req)) || "{}");
+              sendJson(res, 200, { photo: await addPhoto(body) });
+              return;
+            }
+
+            if (req.method === "DELETE") {
+              const url = new URL(req.url, "http://localhost");
+              await removePhoto(url.searchParams.get("url"));
+              sendJson(res, 200, { ok: true });
+              return;
+            }
+
+            sendJson(res, 405, { error: "Method not allowed." });
           } catch (error) {
-            res.statusCode = 500;
-            res.setHeader("Content-Type", "application/json");
-            res.end(JSON.stringify({ error: error.message }));
+            sendJson(res, 400, { error: error.message });
           }
         });
       },

@@ -76,13 +76,25 @@ async function prepareImage(file) {
   }
 }
 
+function readDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function uploadFile(file) {
   const prepared = await prepareImage(file);
-  const form = new FormData();
-  form.append("file", prepared);
+  const dataUrl = await readDataUrl(prepared);
   const response = await fetch("/api/photos", {
     method: "POST",
-    body: form,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: prepared.name,
+      dataUrl,
+    }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {

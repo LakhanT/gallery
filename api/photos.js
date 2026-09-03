@@ -1,14 +1,6 @@
 import { del, list, put } from "@vercel/blob";
 
-export const config = {
-  runtime: "edge",
-};
-
 const PREFIX = "gallery/";
-
-function json(data, status = 200) {
-  return Response.json(data, { status });
-}
 
 function photoFromBlob(blob) {
   const fileName = blob.pathname.slice(PREFIX.length).replace(/^\d+-/, "");
@@ -25,54 +17,71 @@ function safeName(name) {
   return base.replace(/[^\w.\- ()]/g, "_").slice(0, 80) || "photo.jpg";
 }
 
-export default async function handler(request) {
-  const url = new URL(request.url);
+export async function listPhotos() {
+  const { blobs } = await list({ prefix: PREFIX });
+  return blobs
+    .map(photoFromBlob)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
 
+export async function addPhoto({ name, dataUrl }) {
+  if (!dataUrl || typeof dataUrl !== "string") {
+    throw new Error("Choose a photo to upload.");
+  }
+
+  const match = dataUrl.match(/^data:(image\/[\w+.-]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("That file is not a photo.");
+  }
+
+  const type = match[1];
+  const buffer = Buffer.from(match[2], "base64");
+  if (!buffer.length) {
+    throw new Error("That photo is empty.");
+  }
+
+  const blob = await put(`${PREFIX}${Date.now()}-${safeName(name)}`, buffer, {
+    access: "public",
+    addRandomSuffix: true,
+    contentType: type,
+  });
+
+  return {
+    id: blob.url,
+    url: blob.url,
+    name: name || "photo.jpg",
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export async function removePhoto(target) {
+  if (!target) {
+    throw new Error("Missing photo.");
+  }
+  await del(target);
+}
+
+export default async function handler(req, res) {
   try {
-    if (request.method === "GET") {
-      const { blobs } = await list({ prefix: PREFIX });
-      const photos = blobs
-        .map(photoFromBlob)
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      return json({ photos });
+    if (req.method === "GET") {
+      res.status(200).json({ photos: await listPhotos() });
+      return;
     }
 
-    if (request.method === "POST") {
-      const form = await request.formData();
-      const file = form.get("file");
-      if (!file || typeof file === "string") {
-        return json({ error: "Choose a photo to upload." }, 400);
-      }
-      if (!file.type || !file.type.startsWith("image/")) {
-        return json({ error: "That file is not a photo." }, 400);
-      }
-
-      const blob = await put(`${PREFIX}${Date.now()}-${safeName(file.name)}`, file, {
-        access: "public",
-        addRandomSuffix: true,
-      });
-
-      return json({
-        photo: {
-          id: blob.url,
-          url: blob.url,
-          name: file.name,
-          createdAt: new Date().toISOString(),
-        },
-      });
+    if (req.method === "POST") {
+      const photo = await addPhoto(req.body || {});
+      res.status(200).json({ photo });
+      return;
     }
 
-    if (request.method === "DELETE") {
-      const target = url.searchParams.get("url");
-      if (!target) {
-        return json({ error: "Missing photo." }, 400);
-      }
-      await del(target);
-      return json({ ok: true });
+    if (req.method === "DELETE") {
+      await removePhoto(req.query?.url);
+      res.status(200).json({ ok: true });
+      return;
     }
 
-    return json({ error: "Method not allowed." }, 405);
+    res.status(405).json({ error: "Method not allowed." });
   } catch (error) {
-    return json({ error: error.message || "Could not update the gallery." }, 500);
+    res.status(400).json({ error: error.message || "Could not update the gallery." });
   }
 }
