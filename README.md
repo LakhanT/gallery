@@ -4,6 +4,9 @@ A minimal photo gallery you can run in the browser. Upload photographs, browse t
 
 Photos stay on the device. Nothing is sent to a server.
 
+**Live demo:** [gallery-nine-sigma-24.vercel.app](https://gallery-nine-sigma-24.vercel.app)
+
+[![Live demo](https://img.shields.io/badge/demo-Vercel-000000?logo=vercel&logoColor=white)](https://gallery-nine-sigma-24.vercel.app)
 ![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-ES_modules-F7DF1E?logo=javascript&logoColor=black)
 ![License: MIT](https://img.shields.io/badge/License-MIT-1C1916)
