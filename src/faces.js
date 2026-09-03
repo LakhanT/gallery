@@ -4,14 +4,42 @@ const MATCH_DISTANCE = 0.52;
 const MIN_FACE_SIZE = 24;
 const MIN_SIDE = 320;
 const MAX_SIDE = 720;
-const MEDIAPIPE_WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/wasm";
+const MEDIAPIPE_VERSION = "1.0.1";
+const MEDIAPIPE_WASM = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`;
 const MEDIAPIPE_MODEL =
-  "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/latest/blaze_face_full_range.tflite";
+  "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite";
 
 let faceapi = null;
 let poseDetector = null;
+let poseVision = null;
+let poseFailures = 0;
 let modelsReady = false;
 let modelsLoading = null;
+
+async function createPoseDetector(delegate) {
+  const { FaceDetector, FilesetResolver } = await import("@mediapipe/tasks-vision");
+  if (!poseVision) {
+    poseVision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM);
+  }
+  return FaceDetector.createFromOptions(poseVision, {
+    baseOptions: {
+      modelAssetPath: MEDIAPIPE_MODEL,
+      delegate,
+    },
+    runningMode: "IMAGE",
+    minDetectionConfidence: 0.25,
+    minSuppressionThreshold: 0.3,
+  });
+}
+
+function closePoseDetector() {
+  try {
+    poseDetector?.close?.();
+  } catch {
+    /* already closed */
+  }
+  poseDetector = null;
+}
 
 export async function loadFaceModels() {
   if (modelsReady) return faceapi;
@@ -26,30 +54,10 @@ export async function loadFaceModels() {
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
     ]);
     try {
-      const { FaceDetector, FilesetResolver } = await import("@mediapipe/tasks-vision");
-      const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM);
-      poseDetector = await FaceDetector.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: MEDIAPIPE_MODEL,
-          delegate: "GPU",
-        },
-        runningMode: "IMAGE",
-        minDetectionConfidence: 0.2,
-        minSuppressionThreshold: 0.25,
-      });
+      poseDetector = await createPoseDetector("GPU");
     } catch {
       try {
-        const { FaceDetector, FilesetResolver } = await import("@mediapipe/tasks-vision");
-        const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM);
-        poseDetector = await FaceDetector.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MEDIAPIPE_MODEL,
-            delegate: "CPU",
-          },
-          runningMode: "IMAGE",
-          minDetectionConfidence: 0.2,
-          minSuppressionThreshold: 0.25,
-        });
+        poseDetector = await createPoseDetector("CPU");
       } catch {
         poseDetector = null;
       }
@@ -149,19 +157,26 @@ function iou(a, b) {
 }
 
 function mediaPipeBoxes(canvas) {
-  if (!poseDetector) return [];
-  const result = poseDetector.detect(canvas);
-  return (result?.detections || [])
-    .map((item) => {
-      const box = item.boundingBox;
-      return {
-        x: box.originX,
-        y: box.originY,
-        width: box.width,
-        height: box.height,
-      };
-    })
-    .filter((box) => box.width >= MIN_FACE_SIZE && box.height >= MIN_FACE_SIZE);
+  if (!poseDetector || poseFailures >= 3) return [];
+  try {
+    const result = poseDetector.detect(canvas);
+    poseFailures = 0;
+    return (result?.detections || [])
+      .map((item) => {
+        const box = item.boundingBox;
+        return {
+          x: box.originX,
+          y: box.originY,
+          width: box.width,
+          height: box.height,
+        };
+      })
+      .filter((box) => box.width >= MIN_FACE_SIZE && box.height >= MIN_FACE_SIZE);
+  } catch {
+    poseFailures += 1;
+    closePoseDetector();
+    return [];
+  }
 }
 
 async function faceApiBoxes(api, canvas) {
