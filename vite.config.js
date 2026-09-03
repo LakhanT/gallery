@@ -1,5 +1,5 @@
 import { loadEnv } from "vite";
-import { addPhoto, listPhotos, removePhoto } from "./api/photos.js";
+import { addPhoto, getGallery, removePhoto, renamePhoto } from "./api/photos.js";
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -40,13 +40,19 @@ export default {
 
           try {
             if (req.method === "GET") {
-              sendJson(res, 200, { photos: await listPhotos() });
+              sendJson(res, 200, await getGallery());
               return;
             }
 
             if (req.method === "POST") {
               const body = JSON.parse((await readBody(req)) || "{}");
               sendJson(res, 200, { photo: await addPhoto(body) });
+              return;
+            }
+
+            if (req.method === "PATCH") {
+              const body = JSON.parse((await readBody(req)) || "{}");
+              sendJson(res, 200, { name: await renamePhoto(body.id, body.name) });
               return;
             }
 

@@ -51,7 +51,102 @@ async function loadUploads() {
     throw new Error("Could not load the shared gallery");
   }
   const data = await response.json();
-  return data.photos || [];
+  return {
+    photos: data.photos || [],
+    names: data.names || {},
+  };
+}
+
+function fileStemAndExt(name) {
+  const lastDot = name.lastIndexOf(".");
+  if (lastDot <= 0) return { stem: name, ext: "" };
+  return { stem: name.slice(0, lastDot), ext: name.slice(lastDot) };
+}
+
+function finishRenameValue(original, next) {
+  const trimmed = next.trim();
+  if (!trimmed) return original;
+  const { ext } = fileStemAndExt(original);
+  if (ext && !trimmed.includes(".")) return `${trimmed}${ext}`;
+  return trimmed.slice(0, 80);
+}
+
+function captionText(photo) {
+  return photo.sample ? `${photo.name} · starter photo` : photo.name;
+}
+
+async function saveRename(photo, nextName) {
+  const name = finishRenameValue(photo.name, nextName);
+  if (name === photo.name) return photo.name;
+  const response = await fetch("/api/photos", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: photo.id, name }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || "Could not rename photo");
+  }
+  photo.name = data.name || name;
+  showToast("Renamed for everyone");
+  return photo.name;
+}
+
+function startRename(photo, host) {
+  if (!photo || !host || host.querySelector(".name-input")) return;
+
+  const original = photo.name;
+  const input = document.createElement("input");
+  input.className = "name-input";
+  input.type = "text";
+  input.value = original;
+  input.setAttribute("aria-label", "Rename photo");
+  host.replaceChildren(input);
+
+  const { stem } = fileStemAndExt(original);
+  input.focus();
+  if (stem && stem !== original) {
+    input.setSelectionRange(0, stem.length);
+  } else {
+    input.select();
+  }
+
+  let settled = false;
+  let commit = true;
+
+  const settle = async () => {
+    if (settled) return;
+    settled = true;
+    try {
+      if (commit) await saveRename(photo, input.value);
+    } catch (error) {
+      showToast(error.message);
+    }
+    if (host === viewerCaption) {
+      host.textContent = captionText(photo);
+    } else {
+      host.textContent = photo.name;
+      host.title = `${photo.name} — double-click or F2 to rename`;
+    }
+    const img = host.closest(".card")?.querySelector("img");
+    if (img) img.alt = photo.name;
+    if (viewer.open && host !== viewerCaption) paintViewer();
+  };
+
+  input.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      input.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      commit = false;
+      input.blur();
+    }
+  });
+  input.addEventListener("blur", () => {
+    settle();
+  });
 }
 
 async function prepareImage(file) {
@@ -147,19 +242,14 @@ function render() {
     ...photos.map((photo, index) => {
       const card = document.createElement("article");
       card.className = "card";
+      card.dataset.index = String(index);
+      card.tabIndex = 0;
 
       const img = document.createElement("img");
       img.src = photo.url;
       img.alt = photo.name;
       img.loading = "lazy";
-      img.tabIndex = 0;
       img.addEventListener("click", () => openViewer(index));
-      img.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          openViewer(index);
-        }
-      });
 
       const bar = document.createElement("div");
       bar.className = "card-bar";
@@ -167,7 +257,20 @@ function render() {
       const name = document.createElement("span");
       name.className = "card-name";
       name.textContent = photo.name;
-      name.title = photo.name;
+      name.title = `${photo.name} — double-click or F2 to rename`;
+      name.tabIndex = 0;
+      name.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        startRename(photo, name);
+      });
+      name.addEventListener("keydown", (event) => {
+        if (event.key === "F2") {
+          event.preventDefault();
+          event.stopPropagation();
+          startRename(photo, name);
+        }
+      });
 
       const download = document.createElement("button");
       download.className = "btn-sm";
@@ -180,6 +283,19 @@ function render() {
       });
 
       bar.append(name, download);
+      card.addEventListener("keydown", (event) => {
+        if (event.target.closest(".name-input")) return;
+        if (event.key === "F2") {
+          event.preventDefault();
+          startRename(photo, name);
+          return;
+        }
+        if (event.target.closest(".card-name")) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openViewer(index);
+        }
+      });
       card.append(img, bar);
       return card;
     })
@@ -189,12 +305,21 @@ function render() {
 async function refresh() {
   const samples = await loadSamples();
   let uploads = [];
+  let names = {};
   try {
-    uploads = await loadUploads();
+    const gallery = await loadUploads();
+    uploads = gallery.photos;
+    names = gallery.names;
   } catch (error) {
     showToast(error.message);
   }
-  photos = [...uploads, ...samples];
+  photos = [
+    ...uploads,
+    ...samples.map((sample) => ({
+      ...sample,
+      name: names[sample.id] || sample.name,
+    })),
+  ];
   render();
 }
 
@@ -240,9 +365,9 @@ function paintViewer() {
   }
   viewerImage.src = photo.url;
   viewerImage.alt = photo.name;
-  viewerCaption.textContent = photo.sample
-    ? `${photo.name} · starter photo`
-    : photo.name;
+  if (!viewerCaption.querySelector(".name-input")) {
+    viewerCaption.textContent = captionText(photo);
+  }
   viewerDelete.hidden = Boolean(photo.sample);
 }
 
@@ -287,11 +412,36 @@ viewerDelete.addEventListener("click", async () => {
   }
 });
 
+viewerCaption.title = "Double-click or F2 to rename";
+viewerCaption.tabIndex = 0;
+viewerCaption.addEventListener("dblclick", (event) => {
+  event.preventDefault();
+  startRename(photos[activeIndex], viewerCaption);
+});
 prevBtn.addEventListener("click", () => step(-1));
 nextBtn.addEventListener("click", () => step(1));
 
 document.addEventListener("keydown", (event) => {
-  if (!viewer.open) return;
+  if (event.key === "F2") {
+    if (document.querySelector(".name-input")) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    if (viewer.open) {
+      startRename(photos[activeIndex], viewerCaption);
+      return;
+    }
+    const card = document.activeElement?.closest?.(".card");
+    if (card) {
+      const index = Number(card.dataset.index);
+      const host = card.querySelector(".card-name");
+      startRename(photos[index], host);
+    }
+    return;
+  }
+
+  if (!viewer.open || document.querySelector(".name-input")) return;
   if (event.key === "ArrowLeft") step(-1);
   if (event.key === "ArrowRight") step(1);
 });

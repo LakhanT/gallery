@@ -167,11 +167,47 @@ main {
 
 .card-name {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 15px;
   font-weight: 600;
+  cursor: text;
+  padding: 2px 4px;
+  margin: -2px -4px;
+}
+
+.card-name:focus,
+.caption:focus {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.name-input {
+  min-width: 0;
+  width: 100%;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  border: 2px solid var(--ink);
+  background: #fff;
+  color: var(--ink);
+  padding: 4px 6px;
+}
+
+.caption {
+  padding: 16px 28px 28px;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: text;
+  min-height: 1.5em;
+}
+
+.caption .name-input {
+  max-width: min(88vw, 480px);
+  font-size: 16px;
 }
 
 .btn-sm {
@@ -247,13 +283,6 @@ main {
   object-fit: contain;
   border: 2px solid var(--line);
   background: var(--paper);
-}
-
-.caption {
-  padding: 16px 28px 28px;
-  color: var(--ink);
-  font-size: 16px;
-  font-weight: 600;
 }
 
 .nav {
