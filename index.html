@@ -49,8 +49,8 @@
       </div>
       <section class="empty" id="empty">
         <h2>No photos yet</h2>
-        <p>Upload a photo and everyone who opens this site will see it. Starter photos are already in the gallery.</p>
-        <button class="btn btn-solid" type="button" id="empty-upload">Choose photos</button>
+        <p>Click Capture or Upload to add a photo. Everyone who opens this site will see it. Starter photos are already in the gallery.</p>
+        <button class="btn btn-solid" type="button" id="empty-upload">Capture or upload</button>
       </section>
 
       <section class="grid" id="grid" hidden></section>
@@ -68,6 +68,34 @@
       <img id="viewer-image" alt="" />
       <button class="nav next" type="button" id="next" aria-label="Next photo">›</button>
       <p class="caption" id="viewer-caption"></p>
+    </dialog>
+
+    <dialog class="picker" id="source-picker">
+      <form method="dialog" class="picker-bar">
+        <button class="btn" value="cancel">Cancel</button>
+      </form>
+      <h2 id="source-title">Find a face</h2>
+      <p id="source-copy">Take a photo with the camera, or upload one from this device.</p>
+      <div class="source-choices">
+        <button class="source-choice" type="button" id="source-capture">
+          <strong>Capture</strong>
+          <span>Use the camera</span>
+        </button>
+        <button class="source-choice" type="button" id="source-upload">
+          <strong>Upload</strong>
+          <span>Choose from device</span>
+        </button>
+      </div>
+    </dialog>
+
+    <dialog class="picker camera" id="camera">
+      <form method="dialog" class="picker-bar">
+        <button class="btn" value="cancel" type="submit" id="camera-cancel">Cancel</button>
+      </form>
+      <h2>Capture</h2>
+      <p>Look at the camera, then take the photo.</p>
+      <video id="camera-video" autoplay playsinline muted></video>
+      <button class="btn btn-solid" type="button" id="camera-shot">Take photo</button>
     </dialog>
 
     <dialog class="picker" id="face-picker">

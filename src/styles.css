@@ -244,6 +244,62 @@ main {
   outline-offset: 2px;
 }
 
+.source-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.source-choice {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  padding: 20px 18px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.source-choice strong {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.source-choice span {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.source-choice:hover,
+.source-choice:focus-visible {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.source-choice:hover span,
+.source-choice:focus-visible span {
+  color: color-mix(in srgb, var(--bg) 80%, transparent);
+}
+
+.camera video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  background: #1c1916;
+  border: 2px solid var(--line);
+  margin-bottom: 16px;
+}
+
+.camera .btn-solid {
+  width: 100%;
+}
+
 .face-choice img {
   display: block;
   width: 96px;
@@ -471,5 +527,9 @@ main {
     top: auto;
     bottom: 20px;
     transform: none;
+  }
+
+  .source-choices {
+    grid-template-columns: 1fr;
   }
 }

@@ -21,6 +21,14 @@ const searchLabel = document.querySelector("#search-label");
 const searchClear = document.querySelector("#search-clear");
 const facePicker = document.querySelector("#face-picker");
 const faceChoices = document.querySelector("#face-choices");
+const sourcePicker = document.querySelector("#source-picker");
+const sourceTitle = document.querySelector("#source-title");
+const sourceCopy = document.querySelector("#source-copy");
+const sourceCapture = document.querySelector("#source-capture");
+const sourceUpload = document.querySelector("#source-upload");
+const camera = document.querySelector("#camera");
+const cameraVideo = document.querySelector("#camera-video");
+const cameraShot = document.querySelector("#camera-shot");
 const dropVeil = document.querySelector("#drop-veil");
 const toast = document.querySelector("#toast");
 const viewer = document.querySelector("#viewer");
@@ -39,6 +47,8 @@ let busy = false;
 let faceMatches = null;
 let sharedFaceIndex = {};
 let scanRunning = false;
+let sourceMode = "face";
+let cameraStream = null;
 
 function showToast(message) {
   toast.textContent = message;
@@ -54,6 +64,9 @@ function setBusy(state) {
   uploadBtn.disabled = state;
   emptyUpload.disabled = state;
   findBtn.disabled = state;
+  sourceCapture.disabled = state;
+  sourceUpload.disabled = state;
+  cameraShot.disabled = state;
 }
 
 function displayedPhotos() {
@@ -268,7 +281,7 @@ function render() {
     searchBar.hidden = !faceMatches;
     empty.querySelector("h2").textContent = "No photos yet";
     empty.querySelector("p").textContent =
-      "Upload a photo and everyone who opens this site will see it. Starter photos are already in the gallery.";
+      "Click Capture or Upload to add a photo. Everyone who opens this site will see it. Starter photos are already in the gallery.";
     emptyUpload.hidden = false;
     count.textContent = "Shared gallery — everyone with this site sees the same photos.";
     return;
@@ -282,7 +295,7 @@ function render() {
   empty.hidden = true;
   empty.querySelector("h2").textContent = "No photos yet";
   empty.querySelector("p").textContent =
-    "Upload a photo and everyone who opens this site will see it. Starter photos are already in the gallery.";
+    "Click Capture or Upload to add a photo. Everyone who opens this site will see it. Starter photos are already in the gallery.";
   emptyUpload.hidden = false;
   grid.hidden = false;
   count.textContent = faceMatches
@@ -609,9 +622,98 @@ async function searchByFace(file) {
   }
 }
 
-uploadBtn.addEventListener("click", () => fileInput.click());
-findBtn.addEventListener("click", () => faceInput.click());
-emptyUpload.addEventListener("click", () => fileInput.click());
+function openSourcePicker(mode) {
+  sourceMode = mode;
+  if (mode === "face") {
+    sourceTitle.textContent = "Find a face";
+    sourceCopy.textContent = "Take a photo with the camera, or upload one from this device.";
+  } else {
+    sourceTitle.textContent = "Add photos";
+    sourceCopy.textContent = "Take a photo with the camera, or upload photos from this device.";
+  }
+  sourcePicker.showModal();
+}
+
+function stopCamera() {
+  cameraStream?.getTracks().forEach((track) => track.stop());
+  cameraStream = null;
+  cameraVideo.srcObject = null;
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showToast("Camera is not available in this browser");
+    return;
+  }
+  const facingMode = sourceMode === "face" ? "user" : { ideal: "environment" };
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: { ideal: 1280 }, height: { ideal: 960 } },
+      audio: false,
+    });
+    cameraVideo.srcObject = cameraStream;
+    cameraVideo.style.transform = sourceMode === "face" ? "scaleX(-1)" : "none";
+    await cameraVideo.play().catch(() => {});
+    camera.showModal();
+  } catch {
+    showToast("Could not open the camera. Allow camera access, or use Upload.");
+  }
+}
+
+function snapshotFromCamera() {
+  const width = cameraVideo.videoWidth;
+  const height = cameraVideo.videoHeight;
+  if (!width || !height) {
+    throw new Error("Camera is not ready yet");
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (sourceMode === "face") {
+    ctx.translate(width, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(cameraVideo, 0, 0);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Could not capture that photo"));
+          return;
+        }
+        resolve(new File([blob], `capture-${Date.now()}.jpg`, { type: "image/jpeg" }));
+      },
+      "image/jpeg",
+      0.9
+    );
+  });
+}
+
+findBtn.addEventListener("click", () => openSourcePicker("face"));
+uploadBtn.addEventListener("click", () => openSourcePicker("photos"));
+emptyUpload.addEventListener("click", () => openSourcePicker("photos"));
+sourceCapture.addEventListener("click", async () => {
+  sourcePicker.close();
+  await startCamera();
+});
+sourceUpload.addEventListener("click", () => {
+  sourcePicker.close();
+  if (sourceMode === "face") faceInput.click();
+  else fileInput.click();
+});
+cameraShot.addEventListener("click", async () => {
+  try {
+    const file = await snapshotFromCamera();
+    stopCamera();
+    if (camera.open) camera.close();
+    if (sourceMode === "face") await searchByFace(file);
+    else await ingest([file]);
+  } catch (error) {
+    showToast(error.message || "Could not capture that photo");
+  }
+});
+camera.addEventListener("close", () => stopCamera());
 searchClear.addEventListener("click", () => clearFaceSearch());
 fileInput.addEventListener("change", async () => {
   await ingest(fileInput.files);
