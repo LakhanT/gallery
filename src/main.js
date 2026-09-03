@@ -36,7 +36,6 @@ let dragDepth = 0;
 let toastTimer = 0;
 let busy = false;
 let faceMatches = null;
-let matchScores = new Map();
 let scanToken = 0;
 
 function showToast(message) {
@@ -60,8 +59,8 @@ function displayedPhotos() {
   return photos.filter((photo) => faceMatches.has(photo.id));
 }
 
-async function loadSamples() {
-  const response = await fetch("/samples/manifest.json");
+async function loadDumps() {
+  const response = await fetch("/dumps/manifest.json");
   if (!response.ok) return [];
   const items = await response.json();
   return items.map((item) => ({
@@ -264,13 +263,7 @@ function render() {
   }
 
   if (faceMatches && !shown.length) {
-    empty.hidden = false;
-    grid.hidden = true;
-    empty.querySelector("h2").textContent = "No matching dumps";
-    empty.querySelector("p").textContent =
-      "That face was not found in the gallery. Try a clearer photo, or show all dumps again.";
-    emptyUpload.hidden = true;
-    count.textContent = "0 matching dumps";
+    clearFaceSearch();
     return;
   }
 
@@ -304,8 +297,7 @@ function render() {
       if (faceMatches) {
         const tag = document.createElement("span");
         tag.className = "match-tag";
-        const score = matchScores.get(photo.id);
-        tag.textContent = score ? `${score}% match` : "Match";
+        tag.textContent = "Match";
         card.append(tag);
       }
 
@@ -362,6 +354,7 @@ function render() {
 
 async function refresh() {
   const samples = await loadSamples();
+  const dumps = await loadDumps();
   let uploads = [];
   let names = {};
   try {
@@ -373,6 +366,10 @@ async function refresh() {
   }
   photos = [
     ...uploads,
+    ...dumps.map((dump) => ({
+      ...dump,
+      name: names[dump.id] || dump.name,
+    })),
     ...samples.map((sample) => ({
       ...sample,
       name: names[sample.id] || sample.name,
@@ -488,10 +485,6 @@ async function scanGalleryFaces() {
   }
 }
 
-function matchPercent(distance) {
-  return Math.max(1, Math.min(99, Math.round((1 - distance / 0.7) * 100)));
-}
-
 function pickQueryFace(faces) {
   return new Promise((resolve) => {
     let done = false;
@@ -523,7 +516,6 @@ function pickQueryFace(faces) {
 
 function clearFaceSearch() {
   faceMatches = null;
-  matchScores = new Map();
   searchBar.hidden = true;
   render();
 }
@@ -543,15 +535,11 @@ async function searchByFace(file) {
     if (!query) return;
     const matches = matchPhotos(query.descriptor, index, photos);
     if (!matches.length) {
-      faceMatches = new Set();
-      matchScores = new Map();
-      searchBar.hidden = false;
-      searchLabel.textContent = "No dumps matched that face";
-      render();
+      clearFaceSearch();
+      showToast("No confident match in the dumps");
       return;
     }
     faceMatches = new Set(matches.map((row) => row.photo.id));
-    matchScores = new Map(matches.map((row) => [row.photo.id, matchPercent(row.distance)]));
     searchBar.hidden = false;
     searchLabel.textContent =
       matches.length === 1

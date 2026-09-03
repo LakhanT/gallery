@@ -1,6 +1,7 @@
 const MODEL_URL = "/models";
-const MATCH_DISTANCE = 0.55;
-const LOOSE_DISTANCE = 0.62;
+const MATCH_DISTANCE = 0.42;
+const MIN_FACE_SIZE = 72;
+const MIN_CONFIDENCE = 0.5;
 
 let faceapi = null;
 let modelsReady = false;
@@ -75,23 +76,28 @@ export async function detectFacesFromSource(source) {
   const api = await loadFaceModels();
   const canvas = source instanceof File ? await canvasFromFile(source) : await canvasFromUrl(source);
   const detections = await api
-    .detectAllFaces(canvas, new api.SsdMobilenetv1Options({ minConfidence: 0.38 }))
+    .detectAllFaces(canvas, new api.SsdMobilenetv1Options({ minConfidence: MIN_CONFIDENCE }))
     .withFaceLandmarks()
     .withFaceDescriptors();
 
-  return detections.map((item) => {
-    const box = item.detection.box;
-    return {
-      descriptor: Array.from(item.descriptor),
-      box: {
-        x: box.x,
-        y: box.y,
-        width: box.width,
-        height: box.height,
-      },
-      preview: cropFace(canvas, box),
-    };
-  });
+  return detections
+    .filter((item) => {
+      const box = item.detection.box;
+      return box.width >= MIN_FACE_SIZE && box.height >= MIN_FACE_SIZE;
+    })
+    .map((item) => {
+      const box = item.detection.box;
+      return {
+        descriptor: Array.from(item.descriptor),
+        box: {
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+        },
+        preview: cropFace(canvas, box),
+      };
+    });
 }
 
 export function faceDistance(a, b) {
@@ -119,8 +125,7 @@ export function matchPhotos(queryDescriptor, index, photos) {
     }
   }
   rows.sort((a, b) => a.distance - b.distance);
-  const tight = rows.filter((row) => row.distance <= MATCH_DISTANCE);
-  return tight.length ? tight : rows.filter((row) => row.distance <= LOOSE_DISTANCE);
+  return rows.filter((row) => row.distance <= MATCH_DISTANCE);
 }
 
 export async function loadFaceIndex() {

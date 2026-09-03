@@ -14,7 +14,7 @@ Uploads are stored in Vercel Blob, so every visitor sees the same gallery.
 ## Features
 
 - **Shared uploads** — a photo added by one visitor appears for everyone
-- **Starter photos** — six sample images from [Unsplash](https://unsplash.com) ship with the gallery
+- **Starter dumps** — 100 portrait photos plus six Unsplash scenes ship with the gallery
 - **Browse** — a clear grid with the name on every card
 - **View** — click a photo to open it larger; use arrow keys to move between images
 - **Download** — save any photo individually
@@ -53,11 +53,11 @@ Open the URL Vite prints (usually `http://localhost:5173`).
 
 ## How it works
 
-1. Starter photographs live in `public/samples/` and always appear in the grid.
+1. One hundred portrait dumps live in `public/dumps/`, plus six Unsplash scenes in `public/samples/`.
 2. New uploads are posted to `/api/photos` and stored in Vercel Blob with public URLs.
 3. Every browser loads the same blob list, so the gallery is shared.
 4. Download fetches the image file and saves it on the visitor's device.
-5. Face search runs in the browser: each dump is scanned once, embeddings are stored in Blob, then a query face is compared against that index.
+5. Face search runs in the browser. A dump is shown only when the match is strict (distance ≤ 0.42). Weak matches are ignored.
 
 This is an open gallery: anyone with the link can add or remove uploaded photos.
 
@@ -67,6 +67,7 @@ This is an open gallery: anyone with the link can add or remove uploaded photos.
 .
 ├── api/photos.js           List, upload, and delete shared photos
 ├── api/faces.js            Shared face embeddings
+├── public/dumps/           100 portrait dumps
 ├── public/models/          FaceAPI weights
 ├── public/samples/         Starter photographs
 ├── index.html              App shell
