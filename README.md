@@ -14,7 +14,7 @@ Uploads are stored in Vercel Blob, so every visitor sees the same gallery.
 ## Features
 
 - **Shared uploads** — a photo added by one visitor appears for everyone
-- **Starter dumps** — 100 portrait photos plus six Unsplash scenes ship with the gallery
+- **Starter dumps** — 151 portrait photos (including Indian faces) plus six Unsplash scenes ship with the gallery
 - **Browse** — a clear grid with the name on every card
 - **View** — click a photo to open it larger; use arrow keys to move between images
 - **Download** — save any photo individually
@@ -53,7 +53,7 @@ Open the URL Vite prints (usually `http://localhost:5173`).
 
 ## How it works
 
-1. One hundred portrait dumps live in `public/dumps/`, plus six Unsplash scenes in `public/samples/`.
+1. One hundred fifty-one portrait dumps live in `public/dumps/` (the later set is Indian faces from Pexels and Unsplash), plus six Unsplash scenes in `public/samples/`.
 2. New uploads are posted to `/api/photos` and stored in Vercel Blob with public URLs.
 3. Every browser loads the same blob list, so the gallery is shared.
 4. Download fetches the image file and saves it on the visitor's device.
@@ -67,7 +67,7 @@ This is an open gallery: anyone with the link can add or remove uploaded photos.
 .
 ├── api/photos.js           List, upload, and delete shared photos
 ├── api/faces.js            Shared face embeddings
-├── public/dumps/           100 portrait dumps
+├── public/dumps/           151 portrait dumps, including Indian faces
 ├── public/models/          FaceAPI weights
 ├── public/samples/         Starter photographs
 ├── index.html              App shell

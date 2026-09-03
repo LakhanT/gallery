@@ -10,3 +10,4 @@ dist
 .idea
 .data
 .env*
+tmp-faces
