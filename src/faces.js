@@ -1,7 +1,8 @@
 const MODEL_URL = "/models";
-const MATCH_DISTANCE = 0.42;
-const MIN_FACE_SIZE = 72;
-const MIN_CONFIDENCE = 0.5;
+export const SCAN_VERSION = 2;
+const MATCH_DISTANCE = 0.5;
+const MIN_FACE_SIZE = 40;
+const MIN_SIDE = 416;
 
 let faceapi = null;
 let modelsReady = false;
@@ -14,6 +15,7 @@ export async function loadFaceModels() {
   modelsLoading = (async () => {
     faceapi = await import("@vladmandic/face-api");
     await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
@@ -30,15 +32,11 @@ export async function loadFaceModels() {
   }
 }
 
-async function canvasFromUrl(url) {
-  const response = await fetch(url, { mode: "cors" });
-  if (!response.ok) {
-    throw new Error("Could not open that photo");
-  }
-  const blob = await response.blob();
-  const bitmap = await createImageBitmap(blob);
-  const max = 900;
-  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+function canvasFromBitmap(bitmap) {
+  const longest = Math.max(bitmap.width, bitmap.height);
+  const shortest = Math.min(bitmap.width, bitmap.height);
+  let scale = shortest < MIN_SIDE ? MIN_SIDE / shortest : 1;
+  if (longest * scale > 900) scale = 900 / longest;
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(bitmap.width * scale));
   canvas.height = Math.max(1, Math.round(bitmap.height * scale));
@@ -47,16 +45,17 @@ async function canvasFromUrl(url) {
   return canvas;
 }
 
+async function canvasFromUrl(url) {
+  const response = await fetch(url, { mode: "cors" });
+  if (!response.ok) {
+    throw new Error("Could not open that photo");
+  }
+  const blob = await response.blob();
+  return canvasFromBitmap(await createImageBitmap(blob));
+}
+
 async function canvasFromFile(file) {
-  const bitmap = await createImageBitmap(file);
-  const max = 900;
-  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  return canvas;
+  return canvasFromBitmap(await createImageBitmap(file));
 }
 
 function cropFace(canvas, box) {
@@ -72,14 +71,7 @@ function cropFace(canvas, box) {
   return cut.toDataURL("image/jpeg", 0.85);
 }
 
-export async function detectFacesFromSource(source) {
-  const api = await loadFaceModels();
-  const canvas = source instanceof File ? await canvasFromFile(source) : await canvasFromUrl(source);
-  const detections = await api
-    .detectAllFaces(canvas, new api.SsdMobilenetv1Options({ minConfidence: MIN_CONFIDENCE }))
-    .withFaceLandmarks()
-    .withFaceDescriptors();
-
+function toRecords(canvas, detections) {
   return detections
     .filter((item) => {
       const box = item.detection.box;
@@ -98,6 +90,29 @@ export async function detectFacesFromSource(source) {
         preview: cropFace(canvas, box),
       };
     });
+}
+
+async function detectOnCanvas(api, canvas) {
+  const tiny = await api
+    .detectAllFaces(
+      canvas,
+      new api.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.3 })
+    )
+    .withFaceLandmarks()
+    .withFaceDescriptors();
+  if (tiny.length) return tiny;
+
+  return api
+    .detectAllFaces(canvas, new api.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+    .withFaceLandmarks()
+    .withFaceDescriptors();
+}
+
+export async function detectFacesFromSource(source) {
+  const api = await loadFaceModels();
+  const canvas = source instanceof File ? await canvasFromFile(source) : await canvasFromUrl(source);
+  const detections = await detectOnCanvas(api, canvas);
+  return toRecords(canvas, detections);
 }
 
 export function faceDistance(a, b) {
@@ -120,12 +135,12 @@ export function matchPhotos(queryDescriptor, index, photos) {
       const distance = faceDistance(queryDescriptor, face.descriptor);
       if (distance < best) best = distance;
     }
-    if (best < Infinity) {
+    if (best <= MATCH_DISTANCE) {
       rows.push({ photo, distance: best });
     }
   }
   rows.sort((a, b) => a.distance - b.distance);
-  return rows.filter((row) => row.distance <= MATCH_DISTANCE);
+  return rows;
 }
 
 export async function loadFaceIndex() {
@@ -142,7 +157,7 @@ export async function saveFaceRecord(id, faces) {
   const response = await fetch("/api/faces", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, faces: payload }),
+    body: JSON.stringify({ id, faces: payload, version: SCAN_VERSION }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {

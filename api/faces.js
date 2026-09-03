@@ -29,13 +29,14 @@ export async function getFaceIndex() {
   return getIndex();
 }
 
-export async function upsertFaceRecord(id, faces) {
+export async function upsertFaceRecord(id, faces, version = 1) {
   if (!id) {
     throw new Error("Missing photo.");
   }
   const index = await getIndex();
   index[id] = {
     faces: Array.isArray(faces) ? faces : [],
+    version: Number(version) || 1,
     updatedAt: new Date().toISOString(),
   };
   await saveIndex(index);
@@ -58,8 +59,8 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "POST") {
-      const { id, faces } = req.body || {};
-      const record = await upsertFaceRecord(id, faces);
+      const { id, faces, version } = req.body || {};
+      const record = await upsertFaceRecord(id, faces, version);
       res.status(200).json({ record });
       return;
     }

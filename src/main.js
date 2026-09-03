@@ -4,6 +4,7 @@ import {
   loadFaceModels,
   matchPhotos,
   saveFaceRecord,
+  SCAN_VERSION,
 } from "./faces.js";
 
 const fileInput = document.querySelector("#file-input");
@@ -460,7 +461,7 @@ async function scanGalleryFaces() {
   try {
     await loadFaceModels();
     let index = await loadFaceIndex();
-    const pending = photos.filter((photo) => !index[photo.id]);
+    const pending = photos.filter((photo) => index[photo.id]?.version !== SCAN_VERSION);
     if (!pending.length) {
       scanStatus.hidden = true;
       return index;
@@ -473,14 +474,9 @@ async function scanGalleryFaces() {
       try {
         const faces = await detectFacesFromSource(photo.url);
         await saveFaceRecord(photo.id, faces);
-        index[photo.id] = { faces };
-      } catch {
-        try {
-          await saveFaceRecord(photo.id, []);
-        } catch {
-          /* keep going */
-        }
-        index[photo.id] = { faces: [] };
+        index[photo.id] = { faces, version: SCAN_VERSION };
+      } catch (error) {
+        scanStatus.textContent = `Retry later: ${photo.name}`;
       }
       await new Promise((resolve) => window.setTimeout(resolve, 40));
     }

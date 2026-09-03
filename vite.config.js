@@ -76,7 +76,7 @@ export default {
               if (req.method === "POST") {
                 const body = JSON.parse((await readBody(req)) || "{}");
                 sendJson(res, 200, {
-                  record: await upsertFaceRecord(body.id, body.faces),
+                  record: await upsertFaceRecord(body.id, body.faces, body.version),
                 });
                 return;
               }
