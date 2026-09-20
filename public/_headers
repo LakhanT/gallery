@@ -1,0 +1,10 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(self), microphone=()
+*/
+/api/*
+  Cache-Control: no-store
+/media/*
+  Cache-Control: private, no-store

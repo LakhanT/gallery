@@ -1,7 +1,7 @@
 {
   "name": "gallery",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A shared photo gallery. Upload in the browser and everyone with the site sees the same photos.",
   "type": "module",
   "license": "MIT",
@@ -16,14 +16,23 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:cf": "npm run build && wrangler pages dev dist --d1 DB --r2 PHOTOS",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name gallery",
+    "db:migrate": "wrangler d1 execute gallery-db --local --file=./migrations/0001_init.sql && wrangler d1 execute gallery-db --local --file=./migrations/0002_admin.sql && wrangler d1 execute gallery-db --local --file=./migrations/0003_users.sql && wrangler d1 execute gallery-db --local --file=./migrations/0004_security.sql && wrangler d1 execute gallery-db --local --file=./migrations/0005_consents.sql && wrangler d1 execute gallery-db --local --file=./migrations/0006_soft_delete.sql",
+    "db:migrate:remote": "wrangler d1 execute gallery-db --remote --file=./migrations/0001_init.sql --yes && wrangler d1 execute gallery-db --remote --file=./migrations/0002_admin.sql --yes && wrangler d1 execute gallery-db --remote --file=./migrations/0003_users.sql --yes && wrangler d1 execute gallery-db --remote --file=./migrations/0004_security.sql --yes && wrangler d1 execute gallery-db --remote --file=./migrations/0005_consents.sql --yes && wrangler d1 execute gallery-db --remote --file=./migrations/0006_soft_delete.sql --yes",
+    "setup:cf": "node scripts/setup-cloudflare.js",
+    "migrate:vercel": "node scripts/migrate-from-vercel.js"
   },
   "devDependencies": {
-    "vite": "^6.3.5"
+    "@vercel/blob": "^2.8.0",
+    "vite": "^6.3.5",
+    "wrangler": "^4.34.0"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
-    "@vercel/blob": "^2.8.0",
-    "@vladmandic/face-api": "^1.7.15"
+    "@vladmandic/face-api": "^1.7.15",
+    "fflate": "^0.8.3",
+    "onnxruntime-web": "^1.21.0"
   }
 }

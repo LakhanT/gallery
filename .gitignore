@@ -11,3 +11,11 @@ dist
 .data
 .env*
 tmp-faces
+brand-assets
+*.ai
+
+# Large ONNX weights load from CDN at runtime
+*.onnx
+.wrangler
+gallery-push-tmp
+

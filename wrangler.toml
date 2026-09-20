@@ -1,0 +1,16 @@
+name = "gallery"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "dist"
+
+# Set ADMIN_PASSWORD with:
+#   npx wrangler pages secret put ADMIN_PASSWORD --project-name gallery
+# Do not commit plaintext passwords.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gallery-db"
+database_id = "4391e57e-29e8-4250-b57c-776f3b2ce15a"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "gallery-photos"

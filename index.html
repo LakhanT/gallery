@@ -3,108 +3,189 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gallery</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
-      rel="stylesheet"
-    />
+    <title>Abbsolute Legends Gallery</title>
+    <meta name="description" content="Abbsolute Legends shared photo gallery — search by face, share, remember." />
+    <link rel="icon" href="/brand/favicon.png" type="image/png" />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
+    <div class="atmosphere" aria-hidden="true"></div>
+
     <div class="drop-veil" id="drop-veil" hidden>
-      <p>Drop photos here</p>
+      <p>Drop photos</p>
     </div>
 
-    <header class="top">
-      <div class="brand">
+    <header class="shell-top">
+      <a class="mark" href="/" aria-label="Abbsolute Legends Gallery">
+        <img src="/brand/logo.webp" alt="Abbsolute Legends" width="180" height="64" />
+      </a>
+      <div class="shell-brand">
+        <p class="eyebrow">Celebrating a decade of greatness</p>
         <h1>Gallery</h1>
-        <p id="count">Shared gallery — everyone with this site sees the same photos.</p>
+        <p class="meta" id="count">Shared photos</p>
       </div>
-      <div class="actions">
-        <button class="btn" type="button" id="find-btn">Find a face</button>
-        <button class="btn btn-solid" type="button" id="upload-btn">Add photos</button>
-      </div>
-      <input
-        id="file-input"
-        type="file"
-        accept="image/*"
-        multiple
-        hidden
-      />
-      <input
-        id="face-input"
-        type="file"
-        accept="image/*"
-        hidden
-      />
+      <nav class="shell-actions" aria-label="Gallery actions">
+        <button class="btn btn-primary" type="button" id="my-photos-btn">My photos</button>
+        <button class="btn" type="button" id="upload-btn">Add photos</button>
+      </nav>
+      <input id="file-input" type="file" accept="image/*" multiple hidden />
+      <input id="face-input" type="file" accept="image/*" hidden />
     </header>
 
-    <main>
-      <p class="scan" id="scan-status" hidden></p>
-      <div class="search-bar" id="search-bar" hidden>
-        <p id="search-label"></p>
-        <button class="btn" type="button" id="search-clear">Show all dumps</button>
+    <main class="shell">
+      <div class="view-tabs" role="tablist" aria-label="Gallery views">
+        <button class="view-tab is-active" type="button" role="tab" id="tab-all" aria-selected="true">
+          All
+        </button>
+        <button class="view-tab" type="button" role="tab" id="tab-mine" aria-selected="false">
+          My photos
+        </button>
       </div>
+
+      <p class="status-line" id="scan-status" hidden></p>
+      <div class="filter-bar" id="search-bar" hidden>
+        <p id="search-label"></p>
+        <div class="filter-actions">
+          <button class="btn btn-ghost" type="button" id="my-photos-retake" hidden>Retake</button>
+          <button class="btn btn-ghost" type="button" id="search-clear">Show all</button>
+        </div>
+      </div>
+
       <section class="empty" id="empty">
-        <h2>No photos yet</h2>
-        <p>Click Capture or Upload to add a photo. Everyone who opens this site will see it. Starter photos are already in the gallery.</p>
-        <button class="btn btn-solid" type="button" id="empty-upload">Capture or upload</button>
+        <p class="eyebrow" id="empty-eyebrow">Abbsolute Legends</p>
+        <h2 id="empty-title">No photos yet</h2>
+        <p id="empty-copy">Add the first shot to the shared gallery, or find photos of you.</p>
+        <div class="empty-actions">
+          <button class="btn btn-primary" type="button" id="empty-my-photos">Find my photos</button>
+          <button class="btn" type="button" id="empty-upload">Add photos</button>
+        </div>
       </section>
 
-      <section class="grid" id="grid" hidden></section>
+      <section class="mosaic" id="grid" hidden></section>
     </main>
 
+    <footer class="shell-foot">
+      <span class="foot-brand">Abbsolute Legends</span>
+      <span class="foot-sep" aria-hidden="true"></span>
+      <span>Celebrating a decade of greatness</span>
+    </footer>
+
     <dialog class="viewer" id="viewer">
-      <form method="dialog" class="viewer-bar">
-        <button class="btn" value="close" type="submit">Close</button>
+      <form method="dialog" class="viewer-top">
+        <button class="btn btn-ghost" value="close" type="submit">Close</button>
         <div class="viewer-actions">
-          <button class="btn btn-solid" type="button" id="viewer-download">Download</button>
+          <button class="btn btn-primary" type="button" id="viewer-download">Download</button>
           <button class="btn btn-danger" type="button" id="viewer-delete">Remove</button>
         </div>
       </form>
-      <button class="nav prev" type="button" id="prev" aria-label="Previous photo">‹</button>
-      <img id="viewer-image" alt="" />
-      <button class="nav next" type="button" id="next" aria-label="Next photo">›</button>
-      <p class="caption" id="viewer-caption"></p>
+      <button class="rail prev" type="button" id="prev" aria-label="Previous photo">‹</button>
+      <figure class="viewer-frame">
+        <img id="viewer-image" alt="" />
+        <figcaption class="caption" id="viewer-caption"></figcaption>
+      </figure>
+      <button class="rail next" type="button" id="next" aria-label="Next photo">›</button>
     </dialog>
 
-    <dialog class="picker" id="source-picker">
-      <form method="dialog" class="picker-bar">
-        <button class="btn" value="cancel">Cancel</button>
+    <dialog class="sheet" id="source-picker">
+      <form method="dialog" class="sheet-top">
+        <button class="btn btn-ghost" value="cancel">Cancel</button>
       </form>
-      <h2 id="source-title">Find a face</h2>
-      <p id="source-copy">Take a photo with the camera, or upload one from this device.</p>
-      <div class="source-choices">
-        <button class="source-choice" type="button" id="source-capture">
-          <strong>Capture</strong>
+      <p class="eyebrow" id="source-eyebrow">Search</p>
+      <h2 id="source-title">My photos</h2>
+      <p id="source-copy">Take or upload a clear selfie to find your photos in the gallery.</p>
+      <div class="choice-list" id="source-choices">
+        <button class="choice" type="button" id="source-capture">
+          <strong>Take photo</strong>
           <span>Use the camera</span>
         </button>
-        <button class="source-choice" type="button" id="source-upload">
-          <strong>Upload</strong>
-          <span>Choose from device</span>
+        <button class="choice" type="button" id="source-upload">
+          <strong>Upload photo</strong>
+          <span>Choose from this device</span>
         </button>
       </div>
     </dialog>
 
-    <dialog class="picker camera" id="camera">
-      <form method="dialog" class="picker-bar">
-        <button class="btn" value="cancel" type="submit" id="camera-cancel">Cancel</button>
+    <dialog class="sheet camera" id="camera">
+      <form method="dialog" class="sheet-top">
+        <button class="btn btn-ghost" value="cancel" type="submit" id="camera-cancel">Cancel</button>
       </form>
-      <h2>Capture</h2>
-      <p>Look at the camera, then take the photo.</p>
+      <p class="eyebrow">Camera</p>
+      <h2>Take photo</h2>
+      <p>Face the lens, then capture.</p>
       <video id="camera-video" autoplay playsinline muted></video>
-      <button class="btn btn-solid" type="button" id="camera-shot">Take photo</button>
+      <button class="btn btn-primary btn-block" type="button" id="camera-shot">Capture</button>
     </dialog>
 
-    <dialog class="picker" id="face-picker">
-      <form method="dialog" class="picker-bar">
-        <button class="btn" value="cancel">Cancel</button>
+    <dialog class="sheet" id="face-picker">
+      <form method="dialog" class="sheet-top">
+        <button class="btn btn-ghost" value="cancel">Cancel</button>
       </form>
+      <p class="eyebrow">Select</p>
       <h2>Which face?</h2>
-      <p>That photo has more than one person. Choose who to find in the dumps.</p>
-      <div class="face-choices" id="face-choices"></div>
+      <p>More than one person was found. Choose who to search for.</p>
+      <div class="face-list" id="face-choices"></div>
+    </dialog>
+
+    <dialog class="sheet consent-sheet" id="disclaimer">
+      <p class="eyebrow">Consent</p>
+      <h2>Before you continue</h2>
+      <p class="disclaimer-text">
+        Please enter your full name and acknowledge the statement below to enter the gallery.
+      </p>
+      <label class="field">
+        Full name
+        <input
+          id="consent-name"
+          type="text"
+          autocomplete="name"
+          maxlength="120"
+          placeholder="Your full name"
+          required
+        />
+      </label>
+      <label class="check">
+        <input id="disclaimer-agree" type="checkbox" />
+        <span
+          >I acknowledge that photographs in which I appear may be taken, used, downloaded and
+          displayed.</span
+        >
+      </label>
+      <button class="btn btn-primary btn-block" type="button" id="disclaimer-continue" disabled>
+        Enter gallery
+      </button>
+    </dialog>
+
+    <dialog class="sheet" id="quality-dialog">
+      <form method="dialog" class="sheet-top">
+        <button class="btn btn-ghost" value="cancel">Close</button>
+      </form>
+      <p class="eyebrow">Quality</p>
+      <h2>Need a clearer photo</h2>
+      <p id="quality-copy">Upload a sharper, well-lit face photo.</p>
+      <ul class="tips">
+        <li>Face the camera</li>
+        <li>Good lighting, no blur</li>
+        <li>One person, close enough</li>
+      </ul>
+      <button class="btn btn-primary btn-block" type="button" id="quality-retry">Try again</button>
+    </dialog>
+
+    <dialog class="admin-panel" id="admin-panel" aria-label="Admin panel">
+      <header class="admin-panel-top">
+        <div>
+          <p class="eyebrow">Control room</p>
+          <h2>Admin</h2>
+        </div>
+        <button class="btn btn-ghost" type="button" id="admin-panel-close">Close</button>
+      </header>
+      <div class="admin-panel-body" id="admin-panel-body">
+        <p class="admin-panel-hint">
+          Open the full admin console to upload (including zip), hide or permanently delete photos, and access the database.
+        </p>
+        <div class="admin-panel-slots" id="admin-panel-slots">
+          <a class="btn btn-primary" href="/admin.html">Open admin</a>
+        </div>
+      </div>
     </dialog>
 
     <div class="toast" id="toast" hidden></div>

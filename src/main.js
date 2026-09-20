@@ -1,27 +1,36 @@
 import {
+  assessFaceQuality,
   detectFacesFromSource,
-  loadFaceIndex,
   loadFaceModels,
-  matchPhotos,
+  loadFaceVersions,
   saveFaceRecord,
   SCAN_VERSION,
+  searchFacesOnServer,
 } from "./faces.js";
 
 const fileInput = document.querySelector("#file-input");
 const faceInput = document.querySelector("#face-input");
 const uploadBtn = document.querySelector("#upload-btn");
-const findBtn = document.querySelector("#find-btn");
+const myPhotosBtn = document.querySelector("#my-photos-btn");
 const emptyUpload = document.querySelector("#empty-upload");
+const emptyMyPhotos = document.querySelector("#empty-my-photos");
 const empty = document.querySelector("#empty");
+const emptyEyebrow = document.querySelector("#empty-eyebrow");
+const emptyTitle = document.querySelector("#empty-title");
+const emptyCopy = document.querySelector("#empty-copy");
 const grid = document.querySelector("#grid");
 const count = document.querySelector("#count");
 const scanStatus = document.querySelector("#scan-status");
 const searchBar = document.querySelector("#search-bar");
 const searchLabel = document.querySelector("#search-label");
 const searchClear = document.querySelector("#search-clear");
+const myPhotosRetake = document.querySelector("#my-photos-retake");
+const tabAll = document.querySelector("#tab-all");
+const tabMine = document.querySelector("#tab-mine");
 const facePicker = document.querySelector("#face-picker");
 const faceChoices = document.querySelector("#face-choices");
 const sourcePicker = document.querySelector("#source-picker");
+const sourceEyebrow = document.querySelector("#source-eyebrow");
 const sourceTitle = document.querySelector("#source-title");
 const sourceCopy = document.querySelector("#source-copy");
 const sourceCapture = document.querySelector("#source-capture");
@@ -38,17 +47,68 @@ const viewerDownload = document.querySelector("#viewer-download");
 const viewerDelete = document.querySelector("#viewer-delete");
 const prevBtn = document.querySelector("#prev");
 const nextBtn = document.querySelector("#next");
+const disclaimer = document.querySelector("#disclaimer");
+const disclaimerAgree = document.querySelector("#disclaimer-agree");
+const disclaimerContinue = document.querySelector("#disclaimer-continue");
+const consentName = document.querySelector("#consent-name");
+
+const CONSENT_KEY = "gallery-consent-v1";
+const CONSENT_STATEMENT =
+  "I acknowledge that photographs in which I appear may be taken, used, downloaded and displayed.";
+const qualityDialog = document.querySelector("#quality-dialog");
+const qualityCopy = document.querySelector("#quality-copy");
+const qualityRetry = document.querySelector("#quality-retry");
+const adminPanel = document.querySelector("#admin-panel");
+const adminPanelClose = document.querySelector("#admin-panel-close");
+
+const MY_PHOTOS_KEY = "gallery-my-photos-v1";
 
 let photos = [];
 let activeIndex = 0;
 let dragDepth = 0;
 let toastTimer = 0;
 let busy = false;
-let faceMatches = null;
+let myPhotoIds = null;
+let viewMode = "all";
 let sharedFaceIndex = {};
 let scanRunning = false;
 let sourceMode = "face";
 let cameraStream = null;
+let qualityRetryMode = "face";
+
+function loadMyPhotos() {
+  try {
+    const raw = sessionStorage.getItem(MY_PHOTOS_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    const ids = Array.isArray(data?.ids) ? data.ids.filter(Boolean) : [];
+    return ids.length ? new Set(ids) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveMyPhotos(ids) {
+  const list = [...ids];
+  if (!list.length) {
+    sessionStorage.removeItem(MY_PHOTOS_KEY);
+    myPhotoIds = null;
+    return;
+  }
+  myPhotoIds = new Set(list);
+  sessionStorage.setItem(
+    MY_PHOTOS_KEY,
+    JSON.stringify({ ids: list, savedAt: new Date().toISOString() })
+  );
+}
+
+function clearMyPhotos() {
+  sessionStorage.removeItem(MY_PHOTOS_KEY);
+  myPhotoIds = null;
+}
+
+myPhotoIds = loadMyPhotos();
+if (myPhotoIds?.size) viewMode = "mine";
 
 function showToast(message) {
   toast.textContent = message;
@@ -63,35 +123,29 @@ function setBusy(state) {
   busy = state;
   uploadBtn.disabled = state;
   emptyUpload.disabled = state;
-  findBtn.disabled = state;
+  emptyMyPhotos.disabled = state;
+  myPhotosBtn.disabled = state;
   sourceCapture.disabled = state;
   sourceUpload.disabled = state;
   cameraShot.disabled = state;
+  tabAll.disabled = state;
+  tabMine.disabled = state;
+}
+
+function setViewMode(mode) {
+  viewMode = mode === "mine" ? "mine" : "all";
+  tabAll.classList.toggle("is-active", viewMode === "all");
+  tabMine.classList.toggle("is-active", viewMode === "mine");
+  tabAll.setAttribute("aria-selected", viewMode === "all" ? "true" : "false");
+  tabMine.setAttribute("aria-selected", viewMode === "mine" ? "true" : "false");
+  render();
 }
 
 function displayedPhotos() {
-  if (!faceMatches) return photos;
-  return photos.filter((photo) => faceMatches.has(photo.id));
-}
-
-async function loadDumps() {
-  const response = await fetch("/dumps/manifest.json");
-  if (!response.ok) return [];
-  const items = await response.json();
-  return items.map((item) => ({
-    ...item,
-    sample: true,
-  }));
-}
-
-async function loadSamples() {
-  const response = await fetch("/samples/manifest.json");
-  if (!response.ok) return [];
-  const items = await response.json();
-  return items.map((item) => ({
-    ...item,
-    sample: true,
-  }));
+  if (viewMode === "mine" && myPhotoIds?.size) {
+    return photos.filter((photo) => myPhotoIds.has(photo.id));
+  }
+  return photos;
 }
 
 async function loadUploads() {
@@ -121,7 +175,7 @@ function finishRenameValue(original, next) {
 }
 
 function captionText(photo) {
-  return photo.sample ? `${photo.name} · starter photo` : photo.name;
+  return photo.name;
 }
 
 async function saveRename(photo, nextName) {
@@ -177,7 +231,7 @@ function startRename(photo, host) {
       host.textContent = photo.name;
       host.title = `${photo.name} — double-click or F2 to rename`;
     }
-    const img = host.closest(".card")?.querySelector("img");
+    const img = host.closest(".tile")?.querySelector("img");
     if (img) img.alt = photo.name;
     if (viewer.open && host !== viewerCaption) paintViewer();
   };
@@ -274,44 +328,84 @@ async function downloadPhoto(photo) {
 
 function render() {
   const shown = displayedPhotos();
+  const inMine = viewMode === "mine";
+  const hasMine = Boolean(myPhotoIds?.size);
+
+  tabAll.classList.toggle("is-active", !inMine);
+  tabMine.classList.toggle("is-active", inMine);
+  tabAll.setAttribute("aria-selected", inMine ? "false" : "true");
+  tabMine.setAttribute("aria-selected", inMine ? "true" : "false");
+
+  if (inMine && hasMine) {
+    searchBar.hidden = false;
+    myPhotosRetake.hidden = false;
+    searchLabel.textContent =
+      shown.length === 1 ? "1 photo of you" : `${shown.length} photos of you`;
+  } else {
+    searchBar.hidden = true;
+    myPhotosRetake.hidden = true;
+  }
 
   if (!photos.length) {
     empty.hidden = false;
     grid.hidden = true;
-    searchBar.hidden = !faceMatches;
-    empty.querySelector("h2").textContent = "No photos yet";
-    empty.querySelector("p").textContent =
-      "Click Capture or Upload to add a photo. Everyone who opens this site will see it. Starter photos are already in the gallery.";
+    emptyEyebrow.textContent = "Abbsolute Legends";
+    emptyTitle.textContent = "No photos yet";
+    emptyCopy.textContent = "Add the first shot to the shared gallery, or find photos of you once they land.";
+    emptyMyPhotos.hidden = false;
     emptyUpload.hidden = false;
-    count.textContent = "Shared gallery — everyone with this site sees the same photos.";
+    count.textContent = "Shared photos";
     return;
   }
 
-  if (faceMatches && !shown.length) {
-    clearFaceSearch();
+  if (inMine && !hasMine) {
+    empty.hidden = false;
+    grid.hidden = true;
+    emptyEyebrow.textContent = "Personal";
+    emptyTitle.textContent = "Find photos of you";
+    emptyCopy.textContent =
+      "Take or upload a clear selfie. We’ll match your face across the shared gallery — no account needed.";
+    emptyMyPhotos.hidden = false;
+    emptyUpload.hidden = true;
+    count.textContent = "My photos";
     return;
   }
 
+  if (inMine && hasMine && !shown.length) {
+    empty.hidden = false;
+    grid.hidden = true;
+    emptyEyebrow.textContent = "Personal";
+    emptyTitle.textContent = "No photos of you yet";
+    emptyCopy.textContent =
+      "We couldn’t match your face in the current gallery. Retake a clearer selfie, or check back after more photos are added.";
+    emptyMyPhotos.hidden = false;
+    emptyMyPhotos.textContent = "Retake selfie";
+    emptyUpload.hidden = true;
+    count.textContent = "My photos";
+    searchBar.hidden = false;
+    myPhotosRetake.hidden = false;
+    searchLabel.textContent = "0 photos of you";
+    return;
+  }
+
+  emptyMyPhotos.textContent = inMine && hasMine && !shown.length ? "Retake selfie" : "Find my photos";
   empty.hidden = true;
-  empty.querySelector("h2").textContent = "No photos yet";
-  empty.querySelector("p").textContent =
-    "Click Capture or Upload to add a photo. Everyone who opens this site will see it. Starter photos are already in the gallery.";
-  emptyUpload.hidden = false;
   grid.hidden = false;
-  count.textContent = faceMatches
+  count.textContent = inMine
     ? shown.length === 1
-      ? "1 matching dump"
-      : `${shown.length} matching dumps`
+      ? "1 photo of you"
+      : `${shown.length} photos of you`
     : shown.length === 1
-      ? "1 photo · shared with everyone on this site"
-      : `${shown.length} photos · shared with everyone on this site`;
+      ? "1 photo"
+      : `${shown.length} photos`;
 
   grid.replaceChildren(
     ...shown.map((photo, index) => {
-      const card = document.createElement("article");
-      card.className = faceMatches ? "card match" : "card";
-      card.dataset.index = String(index);
-      card.tabIndex = 0;
+      const tile = document.createElement("article");
+      tile.className = inMine ? "tile match" : "tile";
+      tile.dataset.index = String(index);
+      tile.tabIndex = 0;
+      tile.style.animationDelay = `${Math.min(index, 12) * 28}ms`;
 
       const img = document.createElement("img");
       img.src = photo.url;
@@ -319,18 +413,18 @@ function render() {
       img.loading = "lazy";
       img.addEventListener("click", () => openViewer(index));
 
-      if (faceMatches) {
+      if (inMine) {
         const tag = document.createElement("span");
         tag.className = "match-tag";
-        tag.textContent = "Match";
-        card.append(tag);
+        tag.textContent = "You";
+        tile.append(tag);
       }
 
       const bar = document.createElement("div");
-      bar.className = "card-bar";
+      bar.className = "tile-bar";
 
       const name = document.createElement("span");
-      name.className = "card-name";
+      name.className = "tile-name";
       name.textContent = photo.name;
       name.title = `${photo.name} — double-click or F2 to rename`;
       name.tabIndex = 0;
@@ -350,7 +444,7 @@ function render() {
       const download = document.createElement("button");
       download.className = "btn-sm";
       download.type = "button";
-      download.textContent = "Download";
+      download.textContent = "Save";
       download.setAttribute("aria-label", `Download ${photo.name}`);
       download.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -358,52 +452,41 @@ function render() {
       });
 
       bar.append(name, download);
-      card.addEventListener("keydown", (event) => {
+      tile.addEventListener("keydown", (event) => {
         if (event.target.closest(".name-input")) return;
         if (event.key === "F2") {
           event.preventDefault();
           startRename(photo, name);
           return;
         }
-        if (event.target.closest(".card-name")) return;
+        if (event.target.closest(".tile-name")) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           openViewer(index);
         }
       });
-      card.append(img, bar);
-      return card;
+      tile.append(img, bar);
+      return tile;
     })
   );
 }
 
 async function refresh() {
-  const samples = await loadSamples();
-  const dumps = await loadDumps();
   let uploads = [];
-  let names = {};
   try {
     const gallery = await loadUploads();
     uploads = gallery.photos;
-    names = gallery.names;
   } catch (error) {
+    photos = [];
+    render();
     showToast(error.message);
+    return;
   }
-  photos = [
-    ...uploads,
-    ...dumps.map((dump) => ({
-      ...dump,
-      name: names[dump.id] || dump.name,
-    })),
-    ...samples.map((sample) => ({
-      ...sample,
-      name: names[sample.id] || sample.name,
-    })),
-  ];
-  if (faceMatches) {
+  photos = uploads;
+  if (myPhotoIds?.size) {
     const ids = new Set(photos.map((photo) => photo.id));
-    faceMatches = new Set([...faceMatches].filter((id) => ids.has(id)));
-    if (!faceMatches.size) clearFaceSearch();
+    const next = [...myPhotoIds].filter((id) => ids.has(id));
+    if (next.length !== myPhotoIds.size) saveMyPhotos(next);
   }
   render();
   scanGalleryFaces().catch(() => {});
@@ -457,7 +540,6 @@ function paintViewer() {
   if (!viewerCaption.querySelector(".name-input")) {
     viewerCaption.textContent = captionText(photo);
   }
-  viewerDelete.hidden = Boolean(photo.sample);
 }
 
 function step(delta) {
@@ -470,10 +552,6 @@ function step(delta) {
   paintViewer();
 }
 
-function currentFaceIndex() {
-  return sharedFaceIndex;
-}
-
 function withTimeout(promise, ms, message) {
   let timer = 0;
   return Promise.race([
@@ -484,18 +562,55 @@ function withTimeout(promise, ms, message) {
   ]).finally(() => window.clearTimeout(timer));
 }
 
+const SCAN_CONCURRENCY = 3;
+
 async function scanOnePhoto(photo) {
   const faces = await withTimeout(
-    detectFacesFromSource(photo.url),
+    detectFacesFromSource(photo.url, { fast: true }),
     20000,
     `Timed out on ${photo.name}`
   );
+  if (!faces.length) {
+    // Mark no-face photos done so we don't re-scan them forever
+    try {
+      await saveFaceRecord(photo.id, []);
+    } catch {
+      /* ignore */
+    }
+    sharedFaceIndex[photo.id] = { version: SCAN_VERSION, faceCount: 0 };
+    return;
+  }
   const stored = await withTimeout(
     saveFaceRecord(photo.id, faces),
-    15000,
+    12000,
     `Could not save ${photo.name}`
   );
-  sharedFaceIndex[photo.id] = { faces: stored, version: SCAN_VERSION };
+  sharedFaceIndex[photo.id] = { version: SCAN_VERSION, faceCount: stored.length };
+}
+
+async function runPool(items, limit, worker) {
+  let next = 0;
+  let completed = 0;
+  const total = items.length;
+  const runners = Array.from({ length: Math.min(limit, total) || 1 }, async () => {
+    while (next < total) {
+      const index = next;
+      next += 1;
+      const item = items[index];
+      try {
+        await worker(item, index);
+      } catch {
+        try {
+          await worker(item, index);
+        } catch {
+          /* skip after retry */
+        }
+      }
+      completed += 1;
+      scanStatus.textContent = `Indexing faces… ${completed} of ${total}`;
+    }
+  });
+  await Promise.all(runners);
 }
 
 async function scanGalleryFaces() {
@@ -504,9 +619,13 @@ async function scanGalleryFaces() {
   try {
     await loadFaceModels();
     try {
-      sharedFaceIndex = { ...sharedFaceIndex, ...(await loadFaceIndex()) };
+      const versions = await loadFaceVersions();
+      sharedFaceIndex = { ...sharedFaceIndex };
+      for (const [id, version] of Object.entries(versions)) {
+        sharedFaceIndex[id] = { ...(sharedFaceIndex[id] || {}), version };
+      }
     } catch (error) {
-      showToast(error.message || "Could not load saved faces");
+      if (error.message) showToast(error.message);
     }
     const pending = photos.filter((photo) => sharedFaceIndex[photo.id]?.version !== SCAN_VERSION);
     if (!pending.length) {
@@ -514,21 +633,8 @@ async function scanGalleryFaces() {
       return sharedFaceIndex;
     }
     scanStatus.hidden = false;
-    for (let i = 0; i < pending.length; i += 1) {
-      const photo = pending[i];
-      scanStatus.textContent = `Scanning faces… ${i + 1} of ${pending.length}. You can still search.`;
-      try {
-        await scanOnePhoto(photo);
-      } catch {
-        try {
-          await new Promise((resolve) => window.setTimeout(resolve, 250));
-          await scanOnePhoto(photo);
-        } catch {
-          scanStatus.textContent = `Skipped ${photo.name} — will retry on next visit`;
-        }
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 20));
-    }
+    scanStatus.textContent = `Indexing faces… 0 of ${pending.length}`;
+    await runPool(pending, SCAN_CONCURRENCY, (photo) => scanOnePhoto(photo));
     scanStatus.hidden = true;
     return sharedFaceIndex;
   } catch (error) {
@@ -570,51 +676,60 @@ function pickQueryFace(faces) {
 }
 
 function clearFaceSearch() {
-  faceMatches = null;
-  searchBar.hidden = true;
-  render();
+  clearMyPhotos();
+  setViewMode("all");
 }
 
 async function searchByFace(file) {
   if (busy) return;
   setBusy(true);
-  showToast("Looking for that face in the dumps…");
+  showToast("Checking photo quality…");
   try {
     await loadFaceModels();
-    if (!scanRunning) scanGalleryFaces().catch(() => {});
-    try {
-      sharedFaceIndex = { ...sharedFaceIndex, ...(await loadFaceIndex()) };
-    } catch {
-      /* use whatever is already scanned in this tab */
+    const quality = await assessFaceQuality(file, { requireSingle: false });
+    if (!quality.ok) {
+      askForBetterPhoto(quality.reason, "face");
+      return;
     }
-    const faces = await detectFacesFromSource(file);
+
+    const versionMap = {};
+    try {
+      const versions = await loadFaceVersions();
+      for (const [id, version] of Object.entries(versions)) {
+        versionMap[id] = version;
+        sharedFaceIndex[id] = { ...(sharedFaceIndex[id] || {}), version };
+      }
+    } catch {
+      /* continue */
+    }
+
+    const indexedAnywhere = Object.keys(versionMap).length;
+    const currentVersionCount = photos.filter(
+      (photo) => sharedFaceIndex[photo.id]?.version === SCAN_VERSION
+    ).length;
+
+    // Always refresh the index in the background; only block if almost nothing is indexed yet
+    if (indexedAnywhere < Math.min(8, photos.length) && !scanRunning) {
+      showToast("Indexing faces first — try again in a moment");
+      scanGalleryFaces().catch(() => {});
+      return;
+    }
+    if (!scanRunning) scanGalleryFaces().catch(() => {});
+    if (currentVersionCount < photos.length * 0.3) {
+      showToast("Finding your photos… (still improving index)");
+    } else {
+      showToast("Finding your photos…");
+    }
+
+    const faces = quality.faces?.length ? quality.faces : await detectFacesFromSource(file);
     if (!faces.length) {
-      showToast("No face found in that photo");
+      askForBetterPhoto("No clear face found. Please reupload a good-quality photo.", "face");
       return;
     }
     const query = faces.length === 1 ? faces[0] : await pickQueryFace(faces);
     if (!query) return;
-    const matches = matchPhotos(query.descriptors, currentFaceIndex(), photos);
-    if (!matches.length) {
-      clearFaceSearch();
-      const indexed = photos.filter((photo) => sharedFaceIndex[photo.id]?.version === SCAN_VERSION).length;
-      showToast(
-        indexed < photos.length
-          ? `No match yet — still indexing ${indexed} of ${photos.length} photos`
-          : "No confident match in the dumps"
-      );
-      return;
-    }
-    faceMatches = new Set(matches.map((row) => row.photo.id));
-    searchBar.hidden = false;
-    searchLabel.textContent =
-      matches.length === 1
-        ? "1 dump has this face"
-        : `${matches.length} dumps have this face`;
-    render();
-    showToast(
-      matches.length === 1 ? "Found 1 matching dump" : `Found ${matches.length} matching dumps`
-    );
+
+    await runFaceSearch(query.descriptors, query.preview);
   } catch (error) {
     showToast(error.message || "Face search failed");
   } finally {
@@ -622,14 +737,170 @@ async function searchByFace(file) {
   }
 }
 
+async function runFaceSearch(queryDescriptors, queryPreview = "") {
+  const result = await searchFacesOnServer({
+    descriptors: queryDescriptors,
+    queryPreview,
+  });
+  const confident = result.matches || [];
+  const uncertain = result.uncertain || [];
+  const visible = [
+    ...confident,
+    ...uncertain.filter((row) => !confident.some((c) => c.id === row.id)),
+  ];
+
+  const indexedCount =
+    result.indexedCount ??
+    photos.filter((photo) => sharedFaceIndex[photo.id]?.version === SCAN_VERSION).length;
+  const photoCount = result.photoCount ?? photos.length;
+
+  if (!visible.length) {
+    clearMyPhotos();
+    setViewMode("mine");
+    showToast(
+      indexedCount < photoCount
+        ? `No match yet — still indexing ${indexedCount} of ${photoCount} photos`
+        : "No photos of you found yet"
+    );
+    return;
+  }
+
+  saveMyPhotos(visible.map((row) => row.id));
+  setViewMode("mine");
+  const sure = confident.length;
+  const maybe = uncertain.filter((row) => !confident.some((c) => c.id === row.id)).length;
+  showToast(
+    sure > 0
+      ? sure === 1
+        ? "Found 1 photo of you"
+        : `Found ${sure} photos of you`
+      : maybe === 1
+        ? "1 possible photo — check My photos"
+        : `${maybe} possible photos — check My photos`
+  );
+}
+
+function askForBetterPhoto(reason, mode = "face") {
+  qualityRetryMode = mode;
+  qualityCopy.textContent = reason || "Please reupload a good-quality photo.";
+  if (!qualityDialog.open) qualityDialog.showModal();
+  showToast(reason || "Please reupload a good-quality photo");
+}
+
+function readStoredConsent() {
+  try {
+    const raw = localStorage.getItem(CONSENT_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data?.id || !data?.fullName) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredConsent(consent) {
+  localStorage.setItem(
+    CONSENT_KEY,
+    JSON.stringify({
+      id: consent.id,
+      fullName: consent.fullName,
+      at: consent.createdAt || new Date().toISOString(),
+    })
+  );
+}
+
+function syncConsentForm() {
+  const nameOk = Boolean(consentName.value.trim().length >= 2);
+  const agreed = Boolean(disclaimerAgree.checked);
+  disclaimerContinue.disabled = !(nameOk && agreed);
+}
+
+function ensureEntryConsent() {
+  return new Promise((resolve) => {
+    if (readStoredConsent()) {
+      resolve(true);
+      return;
+    }
+
+    consentName.value = "";
+    disclaimerAgree.checked = false;
+    disclaimerContinue.disabled = true;
+    syncConsentForm();
+
+    const onCancel = (event) => {
+      event.preventDefault();
+    };
+
+    const cleanup = () => {
+      consentName.oninput = null;
+      disclaimerAgree.onchange = null;
+      disclaimerContinue.onclick = null;
+      disclaimer.removeEventListener("cancel", onCancel);
+    };
+
+    consentName.oninput = () => syncConsentForm();
+    disclaimerAgree.onchange = () => syncConsentForm();
+
+    disclaimerContinue.onclick = async () => {
+      const fullName = consentName.value.trim();
+      if (fullName.length < 2 || !disclaimerAgree.checked) {
+        syncConsentForm();
+        return;
+      }
+      disclaimerContinue.disabled = true;
+      try {
+        const response = await fetch("/api/consent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fullName,
+            agreed: true,
+            statement: CONSENT_STATEMENT,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Could not save consent");
+        writeStoredConsent(data.consent);
+        cleanup();
+        disclaimer.close();
+        showToast(`Welcome, ${data.consent.fullName.split(" ")[0]}`);
+        resolve(true);
+      } catch (error) {
+        showToast(error.message || "Could not save consent");
+        syncConsentForm();
+      }
+    };
+
+    disclaimer.addEventListener("cancel", onCancel);
+    if (!disclaimer.open) disclaimer.showModal();
+  });
+}
+
+async function openPhotoUploadFlow() {
+  const agreed = await ensureEntryConsent();
+  if (!agreed) {
+    showToast("Consent required");
+    return;
+  }
+  openSourcePicker("photos");
+}
+
+function openMyPhotosFlow() {
+  setViewMode("mine");
+  openSourcePicker("face");
+}
+
 function openSourcePicker(mode) {
   sourceMode = mode;
   if (mode === "face") {
-    sourceTitle.textContent = "Find a face";
-    sourceCopy.textContent = "Take a photo with the camera, or upload one from this device.";
+    sourceEyebrow.textContent = "Personal";
+    sourceTitle.textContent = "My photos";
+    sourceCopy.textContent = "Take or upload a clear selfie to find your photos in the gallery.";
   } else {
+    sourceEyebrow.textContent = "Upload";
     sourceTitle.textContent = "Add photos";
-    sourceCopy.textContent = "Take a photo with the camera, or upload photos from this device.";
+    sourceCopy.textContent = "Take a photo or upload from this device.";
   }
   sourcePicker.showModal();
 }
@@ -690,9 +961,25 @@ function snapshotFromCamera() {
   });
 }
 
-findBtn.addEventListener("click", () => openSourcePicker("face"));
-uploadBtn.addEventListener("click", () => openSourcePicker("photos"));
-emptyUpload.addEventListener("click", () => openSourcePicker("photos"));
+myPhotosBtn.addEventListener("click", () => {
+  if (myPhotoIds?.size) setViewMode("mine");
+  else openMyPhotosFlow();
+});
+uploadBtn.addEventListener("click", () => openPhotoUploadFlow());
+emptyUpload.addEventListener("click", () => openPhotoUploadFlow());
+emptyMyPhotos.addEventListener("click", () => openMyPhotosFlow());
+tabAll.addEventListener("click", () => setViewMode("all"));
+tabMine.addEventListener("click", () => {
+  if (myPhotoIds?.size) setViewMode("mine");
+  else openMyPhotosFlow();
+});
+myPhotosRetake.addEventListener("click", () => openMyPhotosFlow());
+
+qualityRetry.addEventListener("click", () => {
+  qualityDialog.close();
+  faceInput.click();
+});
+
 sourceCapture.addEventListener("click", async () => {
   sourcePicker.close();
   await startCamera();
@@ -732,7 +1019,7 @@ viewerDownload.addEventListener("click", () => {
 
 viewerDelete.addEventListener("click", async () => {
   const photo = photos[activeIndex];
-  if (!photo || photo.sample) return;
+  if (!photo) return;
   try {
     const response = await fetch(`/api/photos?url=${encodeURIComponent(photo.url)}`, {
       method: "DELETE",
@@ -762,7 +1049,28 @@ viewerCaption.addEventListener("dblclick", (event) => {
 prevBtn.addEventListener("click", () => step(-1));
 nextBtn.addEventListener("click", () => step(1));
 
+function openAdminPanel() {
+  if (!adminPanel.open) adminPanel.showModal();
+}
+
+function closeAdminPanel() {
+  if (adminPanel.open) adminPanel.close();
+}
+
+function toggleAdminPanel() {
+  if (adminPanel.open) closeAdminPanel();
+  else openAdminPanel();
+}
+
+adminPanelClose?.addEventListener("click", () => closeAdminPanel());
+
 document.addEventListener("keydown", (event) => {
+  if (event.ctrlKey && event.shiftKey && (event.key === "L" || event.key === "l")) {
+    event.preventDefault();
+    toggleAdminPanel();
+    return;
+  }
+
   if (event.key === "F2") {
     if (document.querySelector(".name-input")) {
       event.preventDefault();
@@ -773,10 +1081,10 @@ document.addEventListener("keydown", (event) => {
       startRename(photos[activeIndex], viewerCaption);
       return;
     }
-    const card = document.activeElement?.closest?.(".card");
-    if (card) {
-      const index = Number(card.dataset.index);
-      const host = card.querySelector(".card-name");
+    const tile = document.activeElement?.closest?.(".tile");
+    if (tile) {
+      const index = Number(tile.dataset.index);
+      const host = tile.querySelector(".tile-name");
       startRename(displayedPhotos()[index], host);
     }
     return;
@@ -805,9 +1113,16 @@ window.addEventListener("drop", async (event) => {
   event.preventDefault();
   dragDepth = 0;
   dropVeil.hidden = true;
+  const agreed = await ensureEntryConsent();
+  if (!agreed) {
+    showToast("Consent required");
+    return;
+  }
   await ingest(event.dataTransfer.files);
 });
 
-refresh().catch((error) => {
-  showToast(error.message || "Could not load the gallery");
+ensureEntryConsent().then(() => {
+  refresh().catch((error) => {
+    showToast(error.message || "Could not load the gallery");
+  });
 });

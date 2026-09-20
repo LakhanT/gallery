@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Abbsolute Legends Admin</title>
+    <link rel="icon" href="/brand/favicon.png" type="image/png" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body class="admin-body">
+    <div class="atmosphere" aria-hidden="true"></div>
+
+    <header class="shell-top">
+      <a class="mark" href="/" aria-label="Abbsolute Legends Gallery">
+        <img src="/brand/logo.webp" alt="Abbsolute Legends" width="180" height="64" />
+      </a>
+      <div class="shell-brand">
+        <p class="eyebrow">Control room</p>
+        <h1>Admin</h1>
+        <p class="meta" id="admin-sub">Upload · Hide · Delete · Database</p>
+      </div>
+      <nav class="shell-actions" aria-label="Admin actions">
+        <a class="btn" href="/">Gallery</a>
+        <button class="btn btn-ghost" type="button" id="logout-btn" hidden>Log out</button>
+      </nav>
+    </header>
+
+    <main class="shell admin-shell">
+      <section class="panel" id="login-panel">
+        <p class="eyebrow">Secure</p>
+        <h2>Admin login</h2>
+        <p>Enter the admin password to manage photos and the database.</p>
+        <form id="login-form" class="form">
+          <label>
+            Password
+            <input id="admin-password" type="password" autocomplete="current-password" required />
+          </label>
+          <button class="btn btn-primary btn-block" type="submit">Log in</button>
+        </form>
+      </section>
+
+      <section class="admin-app" id="admin-panel" hidden>
+        <div class="stat-row" id="admin-stats"></div>
+
+        <section class="panel">
+          <p class="eyebrow">Reviews</p>
+          <h2>Improve search</h2>
+          <p>Mark uncertain face matches as same or different.</p>
+          <div class="approval-list" id="approval-list"></div>
+          <p class="empty-note" id="approval-empty" hidden>No pending reviews.</p>
+        </section>
+
+        <section class="panel">
+          <p class="eyebrow">Library</p>
+          <h2>Upload photos</h2>
+          <p>Images or a .zip of images. Uploads appear in the shared gallery.</p>
+          <div class="admin-toolbar">
+            <button class="btn btn-primary" type="button" id="admin-upload-btn">Add photos / zip</button>
+            <button class="btn" type="button" id="admin-refresh-photos">Refresh list</button>
+            <button class="btn btn-danger" type="button" id="admin-upload-cancel" hidden>Cancel upload</button>
+          </div>
+          <input
+            id="admin-file-input"
+            type="file"
+            accept="image/*,.zip,application/zip"
+            multiple
+            hidden
+          />
+          <div class="admin-upload-progress" id="admin-upload-progress" hidden>
+            <div class="admin-upload-progress-top">
+              <p class="admin-upload-status" id="admin-upload-status"></p>
+              <span class="admin-upload-pct" id="admin-upload-pct">0%</span>
+            </div>
+            <div class="admin-upload-track" aria-hidden="true">
+              <div class="admin-upload-fill" id="admin-upload-fill"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <p class="eyebrow">Manage</p>
+          <h2>Photo library</h2>
+          <p>
+            <strong>Hide</strong> removes from the website but keeps the file.
+            <strong>Delete forever</strong> permanently removes file and database rows.
+          </p>
+          <div class="admin-filter-row">
+            <label class="admin-check">
+              <input type="checkbox" id="admin-show-hidden" checked />
+              Show hidden photos
+            </label>
+          </div>
+          <div class="admin-photo-list" id="admin-photo-list"></div>
+          <p class="empty-note" id="admin-photo-empty" hidden>No photos yet.</p>
+        </section>
+
+        <section class="panel">
+          <p class="eyebrow">Database</p>
+          <h2>D1 access</h2>
+          <p>Download any table as CSV, or run SELECT / ALTER / UPDATE / INSERT / DELETE / CREATE INDEX.</p>
+          <div class="admin-db-row">
+            <label>
+              Table
+              <select id="admin-db-table"></select>
+            </label>
+            <button class="btn" type="button" id="admin-db-csv">Download CSV</button>
+          </div>
+          <label class="admin-sql-label">
+            SQL
+            <textarea
+              id="admin-sql"
+              rows="5"
+              spellcheck="false"
+              placeholder="SELECT * FROM photos LIMIT 20"
+            ></textarea>
+          </label>
+          <div class="admin-toolbar">
+            <button class="btn btn-primary" type="button" id="admin-sql-run">Run SQL</button>
+          </div>
+          <pre class="admin-sql-result" id="admin-sql-result" hidden></pre>
+        </section>
+      </section>
+    </main>
+
+    <footer class="shell-foot">
+      <span class="foot-brand">Abbsolute Legends</span>
+      <span class="foot-sep" aria-hidden="true"></span>
+      <span>Admin</span>
+    </footer>
+
+    <div class="toast" id="toast" hidden></div>
+    <script type="module" src="/src/admin.js"></script>
+  </body>
+</html>
