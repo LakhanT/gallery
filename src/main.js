@@ -1,12 +1,4 @@
-import {
-  assessFaceQuality,
-  detectFacesFromSource,
-  loadFaceModels,
-  loadFaceVersions,
-  saveFaceRecord,
-  SCAN_VERSION,
-  searchFacesOnServer,
-} from "./faces.js";
+import { searchFacesOnServer } from "./faces.js";
 
 const fileInput = document.querySelector("#file-input");
 const faceInput = document.querySelector("#face-input");
@@ -489,7 +481,7 @@ async function refresh() {
     if (next.length !== myPhotoIds.size) saveMyPhotos(next);
   }
   render();
-  scanGalleryFaces().catch(() => {});
+  // Gallery face indexing is admin/server-side (InsightFace buffalo_l) — visitors do not index.
 }
 
 async function ingest(fileList) {
@@ -562,88 +554,9 @@ function withTimeout(promise, ms, message) {
   ]).finally(() => window.clearTimeout(timer));
 }
 
-const SCAN_CONCURRENCY = 3;
-
-async function scanOnePhoto(photo) {
-  const faces = await withTimeout(
-    detectFacesFromSource(photo.url, { fast: true }),
-    20000,
-    `Timed out on ${photo.name}`
-  );
-  if (!faces.length) {
-    // Mark no-face photos done so we don't re-scan them forever
-    try {
-      await saveFaceRecord(photo.id, []);
-    } catch {
-      /* ignore */
-    }
-    sharedFaceIndex[photo.id] = { version: SCAN_VERSION, faceCount: 0 };
-    return;
-  }
-  const stored = await withTimeout(
-    saveFaceRecord(photo.id, faces),
-    12000,
-    `Could not save ${photo.name}`
-  );
-  sharedFaceIndex[photo.id] = { version: SCAN_VERSION, faceCount: stored.length };
-}
-
-async function runPool(items, limit, worker) {
-  let next = 0;
-  let completed = 0;
-  const total = items.length;
-  const runners = Array.from({ length: Math.min(limit, total) || 1 }, async () => {
-    while (next < total) {
-      const index = next;
-      next += 1;
-      const item = items[index];
-      try {
-        await worker(item, index);
-      } catch {
-        try {
-          await worker(item, index);
-        } catch {
-          /* skip after retry */
-        }
-      }
-      completed += 1;
-      scanStatus.textContent = `Indexing faces… ${completed} of ${total}`;
-    }
-  });
-  await Promise.all(runners);
-}
-
 async function scanGalleryFaces() {
-  if (scanRunning) return sharedFaceIndex;
-  scanRunning = true;
-  try {
-    await loadFaceModels();
-    try {
-      const versions = await loadFaceVersions();
-      sharedFaceIndex = { ...sharedFaceIndex };
-      for (const [id, version] of Object.entries(versions)) {
-        sharedFaceIndex[id] = { ...(sharedFaceIndex[id] || {}), version };
-      }
-    } catch (error) {
-      if (error.message) showToast(error.message);
-    }
-    const pending = photos.filter((photo) => sharedFaceIndex[photo.id]?.version !== SCAN_VERSION);
-    if (!pending.length) {
-      scanStatus.hidden = true;
-      return sharedFaceIndex;
-    }
-    scanStatus.hidden = false;
-    scanStatus.textContent = `Indexing faces… 0 of ${pending.length}`;
-    await runPool(pending, SCAN_CONCURRENCY, (photo) => scanOnePhoto(photo));
-    scanStatus.hidden = true;
-    return sharedFaceIndex;
-  } catch (error) {
-    scanStatus.hidden = true;
-    showToast(error.message || "Face scanning failed");
-    throw error;
-  } finally {
-    scanRunning = false;
-  }
+  // Disabled: gallery indexing is admin → face-service (buffalo_l), not visitor FaceNet.
+  return sharedFaceIndex;
 }
 
 function pickQueryFace(faces) {
@@ -683,65 +596,35 @@ function clearFaceSearch() {
 async function searchByFace(file) {
   if (busy) return;
   setBusy(true);
-  showToast("Checking photo quality…");
+  showToast("Finding your photos…");
   try {
-    await loadFaceModels();
-    const quality = await assessFaceQuality(file, { requireSingle: false });
-    if (!quality.ok) {
-      askForBetterPhoto(quality.reason, "face");
-      return;
-    }
-
-    const versionMap = {};
-    try {
-      const versions = await loadFaceVersions();
-      for (const [id, version] of Object.entries(versions)) {
-        versionMap[id] = version;
-        sharedFaceIndex[id] = { ...(sharedFaceIndex[id] || {}), version };
-      }
-    } catch {
-      /* continue */
-    }
-
-    const indexedAnywhere = Object.keys(versionMap).length;
-    const currentVersionCount = photos.filter(
-      (photo) => sharedFaceIndex[photo.id]?.version === SCAN_VERSION
-    ).length;
-
-    // Always refresh the index in the background; only block if almost nothing is indexed yet
-    if (indexedAnywhere < Math.min(8, photos.length) && !scanRunning) {
-      showToast("Indexing faces first — try again in a moment");
-      scanGalleryFaces().catch(() => {});
-      return;
-    }
-    if (!scanRunning) scanGalleryFaces().catch(() => {});
-    if (currentVersionCount < photos.length * 0.3) {
-      showToast("Finding your photos… (still improving index)");
-    } else {
-      showToast("Finding your photos…");
-    }
-
-    const faces = quality.faces?.length ? quality.faces : await detectFacesFromSource(file);
-    if (!faces.length) {
-      askForBetterPhoto("No clear face found. Please reupload a good-quality photo.", "face");
-      return;
-    }
-    const query = faces.length === 1 ? faces[0] : await pickQueryFace(faces);
-    if (!query) return;
-
-    await runFaceSearch(query.descriptors, query.preview);
+    // Server-side SCRFD + ArcFace via face service — no browser FaceNet path
+    await runFaceSearchFromFile(file);
   } catch (error) {
-    showToast(error.message || "Face search failed");
+    const message = error.message || "Face search failed";
+    if (/no clear face|quality|selfie|multiple faces/i.test(message)) {
+      askForBetterPhoto(message, "face");
+    } else {
+      showToast(message);
+    }
   } finally {
     setBusy(false);
   }
 }
 
-async function runFaceSearch(queryDescriptors, queryPreview = "") {
+async function runFaceSearchFromFile(file) {
   const result = await searchFacesOnServer({
-    descriptors: queryDescriptors,
-    queryPreview,
+    file,
+    onStatus: (info) => {
+      if (info?.message) showToast(info.message);
+      else if (info?.status === "queued") showToast("Finding your photos… You’re in the queue.");
+      else if (info?.status === "processing") showToast("Finding your photos…");
+    },
   });
+  await applyFaceSearchResult(result);
+}
+
+async function applyFaceSearchResult(result) {
   const confident = result.matches || [];
   const uncertain = result.uncertain || [];
   const visible = [
@@ -749,17 +632,15 @@ async function runFaceSearch(queryDescriptors, queryPreview = "") {
     ...uncertain.filter((row) => !confident.some((c) => c.id === row.id)),
   ];
 
-  const indexedCount =
-    result.indexedCount ??
-    photos.filter((photo) => sharedFaceIndex[photo.id]?.version === SCAN_VERSION).length;
+  const indexedCount = result.indexedCount ?? 0;
   const photoCount = result.photoCount ?? photos.length;
 
   if (!visible.length) {
     clearMyPhotos();
     setViewMode("mine");
     showToast(
-      indexedCount < photoCount
-        ? `No match yet — still indexing ${indexedCount} of ${photoCount} photos`
+      indexedCount < Math.min(20, photoCount)
+        ? `No match yet — face index covers ${indexedCount} of ${photoCount} photos (admin must re-index)`
         : "No photos of you found yet"
     );
     return;
@@ -767,16 +648,12 @@ async function runFaceSearch(queryDescriptors, queryPreview = "") {
 
   saveMyPhotos(visible.map((row) => row.id));
   setViewMode("mine");
-  const sure = confident.length;
-  const maybe = uncertain.filter((row) => !confident.some((c) => c.id === row.id)).length;
+  const matchN = confident.length;
+  const uncN = uncertain.length;
   showToast(
-    sure > 0
-      ? sure === 1
-        ? "Found 1 photo of you"
-        : `Found ${sure} photos of you`
-      : maybe === 1
-        ? "1 possible photo — check My photos"
-        : `${maybe} possible photos — check My photos`
+    uncN
+      ? `Found ${visible.length} photos (${matchN} strong · ${uncN} possible)`
+      : `Found ${visible.length} photo${visible.length === 1 ? "" : "s"} of you`
   );
 }
 

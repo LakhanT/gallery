@@ -5,9 +5,9 @@ const MODEL_URL = "/models";
  * FaceNet (face-api) is the primary matcher. ArcFace is optional and skipped
  * during gallery indexing for speed.
  */
-export const SCAN_VERSION = 7;
-/** Euclidean (FaceNet) / cosine-distance (ArcFace) — lower = closer */
-export const MATCH_DISTANCE = 0.55;
+export const SCAN_VERSION = 8;
+/** @deprecated FaceNet Euclidean — gallery matching uses cosine similarity in lib/face-match.js */
+export const MATCH_DISTANCE = 0.58;
 export const UNCERTAIN_DISTANCE = 0.68;
 const MIN_FACE_SIZE = 40;
 const MIN_SIDE = 480;
@@ -613,39 +613,161 @@ export async function loadFaceVersions() {
   return data.versions || {};
 }
 
-export async function searchFacesOnServer({ descriptors = null, queryPreview = "" } = {}) {
-  const response = await fetch("/api/faces/search", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ descriptors, queryPreview }),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.error || "Face search failed");
+/**
+ * Public face search — async job + poll.
+ * POST accepts selfie → 202 jobId; client polls until completed/failed.
+ * Does not hold one HTTP request open for buffalo_l.
+ * Handles 429/503 on accept with limited backoff (does not amplify spikes).
+ *
+ * @param {{ file: File|Blob, onStatus?: (info: object) => void }} opts
+ */
+export async function searchFacesOnServer({ file = null, onStatus = null } = {}) {
+  if (!file) {
+    throw new Error("Upload a selfie image to search.");
   }
-  return {
-    matches: data.matches || [],
-    uncertain: data.uncertain || [],
-    indexedCount: data.indexedCount,
-    photoCount: data.photoCount,
-  };
-}
 
-export async function saveFaceRecord(id, faces) {
-  const payload = flattenFaceRecords(faces);
-  let lastError = new Error("Could not save face data");
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const response = await fetch("/api/faces", {
+  const notify = (info) => {
+    try {
+      onStatus?.(info);
+    } catch {
+      /* ignore UI errors */
+    }
+  };
+
+  const maxAcceptAttempts = 3;
+  let lastError = null;
+  let jobId = null;
+  let acceptData = null;
+
+  for (let attempt = 0; attempt < maxAcceptAttempts; attempt += 1) {
+    const form = new FormData();
+    form.append("image", file, file.name || "selfie.jpg");
+    const response = await fetch("/api/faces/search", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, faces: payload, version: SCAN_VERSION }),
+      body: form,
     });
     const data = await response.json().catch(() => ({}));
-    if (response.ok) return payload;
-    lastError = new Error(data.error || "Could not save face data");
-    await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)));
+
+    // Immediate completed duplicate cache hit
+    if (response.ok && data.status === "completed" && (data.matches || data.uncertain)) {
+      return {
+        matches: data.matches || [],
+        uncertain: data.uncertain || [],
+        indexedCount: data.indexedCount,
+        photoCount: data.photoCount,
+        thresholds: data.thresholds,
+        model: data.model,
+        version: data.version,
+        busy: false,
+        jobId: data.jobId,
+      };
+    }
+
+    if ((response.status === 202 || response.ok) && data.jobId) {
+      jobId = data.jobId;
+      acceptData = data;
+      notify({
+        phase: "accepted",
+        status: data.status || "queued",
+        jobId,
+        message: data.message || "Finding your photos…",
+      });
+      break;
+    }
+
+    const status = response.status;
+    const message =
+      data.error ||
+      (status === 429 || status === 503
+        ? "We're processing many requests right now. Please try again in a few seconds."
+        : "Face search failed");
+
+    lastError = Object.assign(new Error(message), {
+      status,
+      busy: status === 429 || status === 503,
+    });
+
+    if ((status === 429 || status === 503) && attempt < maxAcceptAttempts - 1) {
+      const retryAfter = Number(response.headers.get("Retry-After")) || 0;
+      const base = retryAfter > 0 ? retryAfter * 1000 : 800 * 2 ** attempt;
+      const jitter = Math.floor(Math.random() * 400);
+      await new Promise((r) => setTimeout(r, Math.min(8000, base + jitter)));
+      continue;
+    }
+    throw lastError;
   }
-  throw lastError;
+
+  if (!jobId) {
+    throw lastError || new Error("Face search failed");
+  }
+
+  const started = Date.now();
+  const maxWaitMs = 5 * 60 * 1000;
+  let delay = Math.max(500, Number(acceptData?.pollAfterMs) || 800);
+  const maxDelay = 4000;
+
+  while (Date.now() - started < maxWaitMs) {
+    await new Promise((r) => setTimeout(r, delay));
+    const jitter = Math.floor(Math.random() * Math.min(400, delay * 0.25));
+    // next delay grows gently — avoids 3000 clients hammering together
+    delay = Math.min(maxDelay, Math.floor(delay * 1.35) + jitter);
+
+    const pollUrl = `/api/faces/search/${encodeURIComponent(jobId)}`;
+    let response = await fetch(pollUrl);
+    // Fallback query param if dynamic route missing in some hosts
+    if (response.status === 404) {
+      response = await fetch(`/api/faces/search?jobId=${encodeURIComponent(jobId)}`);
+    }
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      if (response.status === 404 || response.status === 410) {
+        throw Object.assign(new Error(data.error || "Search expired. Please try again."), {
+          status: response.status,
+        });
+      }
+      // Transient poll errors: keep waiting with backoff
+      continue;
+    }
+
+    notify({
+      phase: "poll",
+      status: data.status,
+      jobId,
+      message: data.message || "Finding your photos…",
+    });
+
+    if (data.status === "completed") {
+      return {
+        matches: data.matches || [],
+        uncertain: data.uncertain || [],
+        indexedCount: data.indexedCount,
+        photoCount: data.photoCount,
+        thresholds: data.thresholds,
+        model: data.model,
+        version: data.version,
+        busy: false,
+        jobId,
+      };
+    }
+
+    if (data.status === "failed") {
+      throw Object.assign(new Error(data.error || "Face search failed"), {
+        status: 400,
+        jobId,
+      });
+    }
+  }
+
+  throw Object.assign(
+    new Error("Face search is taking too long. Please try again in a moment."),
+    { status: 504, jobId }
+  );
+}
+
+/** @deprecated Public indexing disabled — admin reindex only. */
+export async function saveFaceRecord() {
+  throw new Error("Public face indexing is disabled. Use Admin → Re-index faces.");
 }
 
 export async function deleteFaceRecord(id) {

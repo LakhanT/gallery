@@ -42,11 +42,10 @@ def get_engine() -> FaceAnalysis:
 
 
 def decode_image(data: bytes) -> np.ndarray:
-    arr = np.frombuffer(data, dtype=np.uint8)
-    image = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError("Could not decode image.")
-    return image
+    """Legacy helper — prefer preprocess.decode_and_preprocess for API path."""
+    from preprocess import decode_and_preprocess
+
+    return decode_and_preprocess(data)
 
 
 def detect_and_embed(image_bgr: np.ndarray) -> dict[str, Any]:

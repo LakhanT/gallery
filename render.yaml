@@ -1,11 +1,8 @@
-# Render Blueprint — Abbsolute Legends Gallery face service
-# Docs: docs/FACE_SERVICE_RENDER.md
+# Render Blueprint — Abbsolute Legends Gallery face service (event-scale)
+# Docs: docs/FACE_SERVICE_RENDER.md + docs/SCALE_3000.md
 #
-# Deploy from GitHub repo LakhanT/gallery (root).
-# Docker context: face-service/
-#
-# After deploy: set FACE_SERVICE_API_KEY in the Render dashboard (do not commit it).
-# Do NOT wire Cloudflare Pages secrets until /health passes on Render.
+# Horizontal scale: raise instance count in Render dashboard after benchmarking.
+# Do NOT wire Cloudflare production secrets until staging load tests pass.
 
 services:
   - type: web
@@ -15,10 +12,7 @@ services:
     region: oregon
     dockerfilePath: ./face-service/Dockerfile
     dockerContext: ./face-service
-    # Unauthenticated process probe only — /health stays API-key protected
     healthCheckPath: /livez
-    # buffalo_l model download + first inference can exceed default windows
-    # (adjust in dashboard if needed)
     envVars:
       - key: FACE_PROVIDERS
         value: CPUExecutionProvider
@@ -30,5 +24,23 @@ services:
         value: "0.50"
       - key: FACE_MIN_QUALITY_SCORE
         value: "0.25"
+      - key: MAX_SEARCH_CONCURRENCY
+        value: "2"
+      - key: MAX_INDEX_CONCURRENCY
+        value: "1"
+      - key: MAX_QUEUE_SIZE
+        value: "64"
+      - key: MAX_IMAGE_BYTES
+        value: "8388608"
+      - key: MAX_IMAGE_PIXELS
+        value: "12000000"
+      - key: MAX_LONG_EDGE
+        value: "1600"
+      - key: REQUEST_TIMEOUT_SECONDS
+        value: "45"
+      - key: SEARCH_CACHE_TTL
+        value: "60"
+      - key: INDEX_PAUSE_WHEN_SEARCH_QUEUE_GT
+        value: "16"
       - key: FACE_SERVICE_API_KEY
         sync: false

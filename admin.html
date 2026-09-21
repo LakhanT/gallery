@@ -95,6 +95,32 @@
         </section>
 
         <section class="panel">
+          <p class="eyebrow">Faces</p>
+          <h2>Re-index (buffalo_l)</h2>
+          <p>
+            Server-side InsightFace SCRFD + ArcFace 512-d. Visitors no longer index.
+            Run after deploy or when adding many photos. Old FaceNet indexes are ignored.
+          </p>
+          <div class="stat-row" id="reindex-stats">
+            <div class="stat"><strong id="reindex-indexed">—</strong><span>Indexed</span></div>
+            <div class="stat"><strong id="reindex-faces">—</strong><span>With faces</span></div>
+            <div class="stat"><strong id="reindex-nofaces">—</strong><span>No faces</span></div>
+            <div class="stat"><strong id="reindex-failed">—</strong><span>Failed</span></div>
+            <div class="stat"><strong id="reindex-pending">—</strong><span>Pending</span></div>
+            <div class="stat"><strong id="reindex-total">—</strong><span>Photos</span></div>
+          </div>
+          <p class="admin-upload-status" id="reindex-status">Face service: checking…</p>
+          <pre class="admin-sql-result" id="reindex-thresholds" hidden></pre>
+          <div class="admin-toolbar">
+            <button class="btn btn-primary" type="button" id="reindex-start">Re-index batch</button>
+            <button class="btn" type="button" id="reindex-run-all">Run until done</button>
+            <button class="btn" type="button" id="reindex-retry-failed">Retry failed</button>
+            <button class="btn" type="button" id="reindex-refresh">Refresh status</button>
+            <button class="btn btn-danger" type="button" id="reindex-stop" hidden>Stop</button>
+          </div>
+        </section>
+
+        <section class="panel">
           <p class="eyebrow">Database</p>
           <h2>D1 access</h2>
           <p>Download any table as CSV, or run SELECT / ALTER / UPDATE / INSERT / DELETE / CREATE INDEX.</p>

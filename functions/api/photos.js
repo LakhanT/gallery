@@ -1,4 +1,5 @@
 import { createStore, errorResponse, jsonResponse } from "../../lib/store.js";
+import { publicPhoto, queueFaceIndex } from "../../lib/face-auto-index.js";
 
 async function readJson(request) {
   try {
@@ -24,7 +25,9 @@ export async function onRequestPost(context) {
     const store = createStore(context.env, origin);
     const body = await readJson(context.request);
     const photo = await store.addPhoto(body, null);
-    return jsonResponse({ photo });
+    // Background buffalo_l index — upload response stays fast
+    queueFaceIndex(store, photo, context.env, context.waitUntil?.bind(context));
+    return jsonResponse({ photo: publicPhoto(photo), faceIndex: "queued" });
   } catch (error) {
     return errorResponse(error, error.status || 400);
   }

@@ -4,7 +4,17 @@ pages_build_output_dir = "dist"
 
 # Set ADMIN_PASSWORD with:
 #   npx wrangler pages secret put ADMIN_PASSWORD --project-name gallery
-# Do not commit plaintext passwords.
+# Face service (Python InsightFace buffalo_l) — required for search + reindex:
+#   npx wrangler pages secret put FACE_SERVICE_URL --project-name gallery
+#   npx wrangler pages secret put FACE_SERVICE_API_KEY --project-name gallery
+# Optional: FACE_SERVICE_TIMEOUT_MS (default 60000)
+# Do not commit plaintext secrets. Never put FACE_SERVICE_API_KEY in frontend code.
+#
+# Face-service process env (same machine / VM):
+#   FACE_SERVICE_API_KEY, FACE_MATCH_SIMILARITY, FACE_UNCERTAIN_SIMILARITY,
+#   FACE_MIN_DETECTION_SCORE, FACE_MIN_QUALITY_SCORE, FACE_PROVIDERS
+#
+# Local Vite: set FACE_SERVICE_URL + FACE_SERVICE_API_KEY in the shell before npm run dev.
 
 [[d1_databases]]
 binding = "DB"

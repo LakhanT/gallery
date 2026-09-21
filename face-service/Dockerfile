@@ -24,7 +24,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
 
-COPY app.py config.py face_engine.py matching.py quality.py ./
+COPY app.py config.py face_engine.py matching.py quality.py capacity.py metrics.py cache.py preprocess.py ./
 
 # Optional: warm nothing at build time (models download on first boot).
 # First deploy / cold start may take several minutes while buffalo_l downloads.
