@@ -1,4 +1,5 @@
 import { createStore, errorResponse, jsonResponse } from "../../../lib/store.js";
+import { publicPhoto, queueFaceIndex } from "../../../lib/face-auto-index.js";
 
 async function readJson(request) {
   try {
@@ -27,7 +28,8 @@ export async function onRequestPost(context) {
     await store.requireAdmin(context.request);
     const body = await readJson(context.request);
     const photo = await store.addPhoto(body);
-    return jsonResponse({ photo });
+    queueFaceIndex(store, photo, context.env, context.waitUntil?.bind(context));
+    return jsonResponse({ photo: publicPhoto(photo), faceIndex: "queued" });
   } catch (error) {
     return errorResponse(error, error.status || 400);
   }

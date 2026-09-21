@@ -138,7 +138,12 @@ function renderApprovals(approvals = []) {
             <figcaption>${item.candidateName}</figcaption>
           </figure>
         </div>
-        <p class="approval-meta">Distance ${Number(item.distance).toFixed(3)} · needs manual review</p>
+        <p class="approval-meta">
+          Similarity ${Number(item.similarity ?? 1 - item.distance).toFixed(3)}
+          · distance ${Number(item.distance).toFixed(3)}
+          ${item.qualityScore != null ? `· quality ${Number(item.qualityScore).toFixed(2)}` : ""}
+          · needs manual review
+        </p>
         <div class="approval-actions">
           <button class="btn btn-same" type="button" data-decision="same">Same</button>
           <button class="btn btn-diff" type="button" data-decision="different">Different</button>
@@ -274,6 +279,134 @@ async function loadDbTables() {
   );
 }
 
+const reindexIndexed = document.querySelector("#reindex-indexed");
+const reindexTotal = document.querySelector("#reindex-total");
+const reindexFaces = document.querySelector("#reindex-faces");
+const reindexNoFaces = document.querySelector("#reindex-nofaces");
+const reindexFailed = document.querySelector("#reindex-failed");
+const reindexPending = document.querySelector("#reindex-pending");
+const reindexStatus = document.querySelector("#reindex-status");
+const reindexThresholds = document.querySelector("#reindex-thresholds");
+const reindexStart = document.querySelector("#reindex-start");
+const reindexRunAll = document.querySelector("#reindex-run-all");
+const reindexRetryFailed = document.querySelector("#reindex-retry-failed");
+const reindexRefresh = document.querySelector("#reindex-refresh");
+const reindexStop = document.querySelector("#reindex-stop");
+
+let reindexStopFlag = false;
+
+function paintReindex(data) {
+  const p = data.progress || {};
+  if (reindexIndexed) reindexIndexed.textContent = String(p.indexed ?? "—");
+  if (reindexTotal) reindexTotal.textContent = String(p.total ?? "—");
+  if (reindexFaces) reindexFaces.textContent = String(p.withFaces ?? "—");
+  if (reindexNoFaces) reindexNoFaces.textContent = String(p.noFaces ?? "—");
+  if (reindexFailed) reindexFailed.textContent = String(p.failed ?? "—");
+  if (reindexPending) reindexPending.textContent = String(p.pending ?? "—");
+  if (reindexStatus) {
+    const svc = data.service;
+    if (svc && !svc.ok) {
+      reindexStatus.textContent = `Face service: ${svc?.error || "unreachable — set FACE_SERVICE_URL"}`;
+    } else if (svc?.ok) {
+      reindexStatus.textContent = `Face service OK · ${data.model || svc.model} v${data.version || svc.version} · pending ${p.pending ?? "?"} · failed ${p.failed ?? 0}`;
+    } else {
+      reindexStatus.textContent = `Indexed ${p.indexed ?? "—"} · failed ${p.failed ?? 0} · pending ${p.pending ?? "—"}`;
+    }
+  }
+  if (reindexThresholds && data.thresholds) {
+    reindexThresholds.hidden = false;
+    reindexThresholds.textContent = JSON.stringify(data.thresholds, null, 2);
+  }
+}
+
+async function loadReindexStatus() {
+  if (!reindexStart) return;
+  try {
+    const data = await api("/api/admin/reindex");
+    paintReindex(data);
+  } catch (error) {
+    if (reindexStatus) reindexStatus.textContent = error.message;
+  }
+}
+
+async function runReindexBatch(limit = 5) {
+  const data = await api("/api/admin/reindex", {
+    method: "POST",
+    body: JSON.stringify({ limit }),
+  });
+  paintReindex(data);
+  return data;
+}
+
+reindexRefresh?.addEventListener("click", () => {
+  loadReindexStatus().catch((error) => showToast(error.message));
+});
+
+reindexStart?.addEventListener("click", async () => {
+  if (busy) return;
+  busy = true;
+  try {
+    const data = await runReindexBatch(5);
+    showToast(
+      data.processed
+        ? `Batch done · ${data.facesFound || 0} faces · ${data.errors || 0} errors`
+        : "Nothing pending"
+    );
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    busy = false;
+  }
+});
+
+reindexRetryFailed?.addEventListener("click", async () => {
+  if (busy) return;
+  busy = true;
+  try {
+    const data = await api("/api/admin/reindex", {
+      method: "POST",
+      body: JSON.stringify({ retryFailed: true }),
+    });
+    paintReindex(data);
+    showToast(`Reset ${data.reset || 0} failed photo(s) to pending`);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    busy = false;
+  }
+});
+
+reindexStop?.addEventListener("click", () => {
+  reindexStopFlag = true;
+});
+
+reindexRunAll?.addEventListener("click", async () => {
+  if (busy) return;
+  busy = true;
+  reindexStopFlag = false;
+  if (reindexStop) reindexStop.hidden = false;
+  try {
+    let guard = 0;
+    while (!reindexStopFlag && guard < 5000) {
+      guard += 1;
+      const data = await runReindexBatch(8);
+      // Stop when pending hits 0 — failed photos do not block completion
+      if ((data.progress?.pending ?? 0) <= 0) break;
+      if (!data.processed) break;
+      showToast(
+        `Re-indexing… indexed ${data.progress.indexed}/${data.progress.total} · failed ${data.progress.failed || 0}`
+      );
+    }
+    showToast(reindexStopFlag ? "Re-index stopped" : "Re-index complete (pending = 0)");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    if (reindexStop) reindexStop.hidden = true;
+    busy = false;
+    await loadReindexStatus().catch(() => {});
+  }
+});
+
 function showLoggedIn(counts) {
   loginPanel.hidden = true;
   adminPanel.hidden = false;
@@ -293,7 +426,7 @@ async function bootstrap() {
   try {
     const me = await api("/api/admin/me");
     showLoggedIn(me.counts);
-    await Promise.all([loadApprovals(), loadPhotos(), loadDbTables()]);
+    await Promise.all([loadApprovals(), loadPhotos(), loadDbTables(), loadReindexStatus()]);
   } catch {
     showLoggedOut();
   }

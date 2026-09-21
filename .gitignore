@@ -13,9 +13,6 @@ dist
 tmp-faces
 brand-assets
 *.ai
-
-# Large ONNX weights load from CDN at runtime
-*.onnx
-.wrangler
-gallery-push-tmp
-
+face-service/.venv
+**/__pycache__/
+.pytest_cache

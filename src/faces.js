@@ -5,9 +5,9 @@ const MODEL_URL = "/models";
  * FaceNet (face-api) is the primary matcher. ArcFace is optional and skipped
  * during gallery indexing for speed.
  */
-export const SCAN_VERSION = 7;
-/** Euclidean (FaceNet) / cosine-distance (ArcFace) — lower = closer */
-export const MATCH_DISTANCE = 0.55;
+export const SCAN_VERSION = 8;
+/** @deprecated FaceNet Euclidean — gallery matching uses cosine similarity in lib/face-match.js */
+export const MATCH_DISTANCE = 0.58;
 export const UNCERTAIN_DISTANCE = 0.68;
 const MIN_FACE_SIZE = 40;
 const MIN_SIDE = 480;
@@ -613,11 +613,19 @@ export async function loadFaceVersions() {
   return data.versions || {};
 }
 
-export async function searchFacesOnServer({ descriptors = null, queryPreview = "" } = {}) {
+/**
+ * Public face search — selfie file only (multipart).
+ * Server generates buffalo_l embeddings; client never sends descriptors.
+ */
+export async function searchFacesOnServer({ file = null } = {}) {
+  if (!file) {
+    throw new Error("Upload a selfie image to search.");
+  }
+  const form = new FormData();
+  form.append("image", file, file.name || "selfie.jpg");
   const response = await fetch("/api/faces/search", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ descriptors, queryPreview }),
+    body: form,
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -628,24 +636,15 @@ export async function searchFacesOnServer({ descriptors = null, queryPreview = "
     uncertain: data.uncertain || [],
     indexedCount: data.indexedCount,
     photoCount: data.photoCount,
+    thresholds: data.thresholds,
+    model: data.model,
+    version: data.version,
   };
 }
 
-export async function saveFaceRecord(id, faces) {
-  const payload = flattenFaceRecords(faces);
-  let lastError = new Error("Could not save face data");
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const response = await fetch("/api/faces", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, faces: payload, version: SCAN_VERSION }),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (response.ok) return payload;
-    lastError = new Error(data.error || "Could not save face data");
-    await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)));
-  }
-  throw lastError;
+/** @deprecated Public indexing disabled — admin reindex only. */
+export async function saveFaceRecord() {
+  throw new Error("Public face indexing is disabled. Use Admin → Re-index faces.");
 }
 
 export async function deleteFaceRecord(id) {

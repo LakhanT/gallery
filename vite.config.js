@@ -14,6 +14,22 @@ function readBody(req) {
   });
 }
 
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+function faceServiceEnv() {
+  return {
+    FACE_SERVICE_URL: process.env.FACE_SERVICE_URL || "http://127.0.0.1:8090",
+    FACE_SERVICE_API_KEY: process.env.FACE_SERVICE_API_KEY || "",
+  };
+}
+
 function sendJson(res, status, data, headers = {}) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
@@ -112,7 +128,10 @@ export default {
 
               if (req.method === "POST") {
                 const body = JSON.parse((await readBody(req)) || "{}");
-                sendJson(res, 200, { photo: await store.addPhoto(body, null) });
+                const photo = await store.addPhoto(body, null);
+                const { publicPhoto, queueFaceIndex } = await import("./lib/face-auto-index.js");
+                queueFaceIndex(store, photo, faceServiceEnv());
+                sendJson(res, 200, { photo: publicPhoto(photo), faceIndex: "queued" });
                 return;
               }
 
@@ -138,31 +157,180 @@ export default {
             }
 
             if (pathName === "/api/faces/search" && req.method === "POST") {
+              const contentType = req.headers["content-type"] || "";
+              if (!contentType.includes("multipart/form-data")) {
+                sendJson(res, 400, {
+                  error:
+                    "Public face search requires multipart/form-data with an image field. Client-supplied embeddings are not accepted.",
+                });
+                return;
+              }
+              const { faceServiceDetectEmbed } = await import("./lib/face-client.js");
+              const { FACE_DIM, FACE_EMBEDDING_VERSION, FACE_MIN_QUALITY_SCORE, FACE_MODEL } =
+                await import("./lib/face-config.js");
+              const { isValidArcFaceEmbedding } = await import("./lib/face-validate.js");
+              const raw = await readRawBody(req);
+              const request = new Request("http://localhost/api/faces/search", {
+                method: "POST",
+                headers: { "content-type": contentType },
+                body: raw,
+              });
+              const form = await request.formData();
+              const file = form.get("image") || form.get("file");
+              if (!file || typeof file === "string") {
+                sendJson(res, 400, { error: "Upload a selfie image." });
+                return;
+              }
+              const bytes = await file.arrayBuffer();
+              const detect = await faceServiceDetectEmbed(
+                faceServiceEnv(),
+                new Blob([bytes], { type: file.type || "image/jpeg" }),
+                file.name || "selfie.jpg"
+              );
+              const faces = detect.faces || [];
+              if (!faces.length) {
+                sendJson(res, 400, {
+                  error: "No clear face found. Use a front-facing selfie with good lighting.",
+                });
+                return;
+              }
+              if ((faces[0].quality_score ?? 1) < FACE_MIN_QUALITY_SCORE) {
+                sendJson(res, 400, { error: "Selfie quality is too low. Try again." });
+                return;
+              }
+              const descriptors = faces
+                .slice(0, 3)
+                .map((f) => f.embedding)
+                .filter((e) => isValidArcFaceEmbedding(e));
+              if (!descriptors.length) {
+                sendJson(res, 502, { error: "Face service returned invalid embeddings." });
+                return;
+              }
+              const result = await store.searchFaces(descriptors, "");
+              sendJson(res, 200, {
+                ...result,
+                model: FACE_MODEL,
+                version: FACE_EMBEDDING_VERSION,
+                dim: FACE_DIM,
+              });
+              return;
+            }
+
+            if (pathName === "/api/admin/faces/search" && req.method === "POST") {
+              await store.requireAdmin(webRequest);
               const body = JSON.parse((await readBody(req)) || "{}");
-              sendJson(res, 200, await store.searchFaces(body.descriptors, body.queryPreview || ""));
+              const { filterQueryEmbeddings, isValidArcFaceEmbedding } = await import(
+                "./lib/face-validate.js"
+              );
+              const raw = body.descriptors || body.embeddings || [];
+              let descriptors = filterQueryEmbeddings(Array.isArray(raw) ? raw : []);
+              if (!descriptors.length && isValidArcFaceEmbedding(body.embedding)) {
+                descriptors = [body.embedding];
+              }
+              if (!descriptors.length) {
+                sendJson(res, 400, { error: "Send 512-d ArcFace embeddings." });
+                return;
+              }
+              sendJson(res, 200, {
+                ...(await store.searchFaces(descriptors, body.queryPreview || "")),
+                admin: true,
+              });
               return;
             }
 
             if (pathName === "/api/faces") {
-              if (req.method === "GET") {
-                sendJson(res, 403, { error: "Face index is not publicly available." });
-                return;
-              }
-
-              if (req.method === "POST") {
-                const body = JSON.parse((await readBody(req)) || "{}");
-                sendJson(res, 200, {
-                  record: await store.upsertFaceRecord(body.id, body.faces, body.version, null),
+              if (req.method === "GET" || req.method === "POST") {
+                sendJson(res, 403, {
+                  error:
+                    req.method === "GET"
+                      ? "Face index is not publicly available."
+                      : "Public face indexing is disabled. Use Admin → Re-index faces.",
                 });
                 return;
               }
 
               if (req.method === "DELETE") {
+                await store.requireAdmin(webRequest);
                 await store.removeFaceRecord(url.searchParams.get("id"));
                 sendJson(res, 200, { ok: true });
                 return;
               }
 
+              sendJson(res, 405, { error: "Method not allowed." });
+              return;
+            }
+
+            if (pathName === "/api/admin/reindex") {
+              await store.requireAdmin(webRequest);
+              if (req.method === "GET") {
+                let service = null;
+                try {
+                  const { faceServiceHealth } = await import("./lib/face-client.js");
+                  service = await faceServiceHealth(faceServiceEnv());
+                } catch (error) {
+                  service = { ok: false, error: error.message };
+                }
+                sendJson(res, 200, {
+                  progress: await store.getReindexProgress(),
+                  service,
+                  thresholds: {
+                    model: "insightface-buffalo-l",
+                    version: 8,
+                    matchSimilarity: 0.42,
+                    uncertainSimilarity: 0.32,
+                  },
+                  model: "insightface-buffalo-l",
+                  version: 8,
+                });
+                return;
+              }
+              if (req.method === "POST") {
+                const body = JSON.parse((await readBody(req)) || "{}");
+                if (body.retryFailed && typeof store.retryFailedFaceIndexes === "function") {
+                  const reset = await store.retryFailedFaceIndexes();
+                  sendJson(res, 200, {
+                    retried: true,
+                    reset: reset.reset,
+                    progress: await store.getReindexProgress(),
+                  });
+                  return;
+                }
+                if (typeof store.indexPhotoWithFaceService === "function") {
+                  const limit = Math.min(20, Math.max(1, Number(body.limit) || 5));
+                  const targets = body.photoId
+                    ? [{ id: body.photoId }]
+                    : await store.listPhotosNeedingReindex(limit);
+                  const results = [];
+                  let facesFound = 0;
+                  let errors = 0;
+                  let completed = 0;
+                  for (const photo of targets) {
+                    const outcome = await store.indexPhotoWithFaceService(
+                      photo.id,
+                      faceServiceEnv()
+                    );
+                    if (outcome.status === "failed" || outcome.ok === false) {
+                      errors += 1;
+                      results.push({ ok: false, ...outcome });
+                    } else {
+                      completed += 1;
+                      facesFound += outcome.faceCount || 0;
+                      results.push({ ok: true, ...outcome });
+                    }
+                  }
+                  sendJson(res, 200, {
+                    processed: results.length,
+                    completed,
+                    facesFound,
+                    errors,
+                    results,
+                    progress: await store.getReindexProgress(),
+                  });
+                  return;
+                }
+                sendJson(res, 503, { error: "Local reindex requires face-service + store support." });
+                return;
+              }
               sendJson(res, 405, { error: "Method not allowed." });
               return;
             }
@@ -223,7 +391,10 @@ export default {
               }
               if (req.method === "POST") {
                 const body = JSON.parse((await readBody(req)) || "{}");
-                sendJson(res, 200, { photo: await store.addPhoto(body) });
+                const photo = await store.addPhoto(body);
+                const { publicPhoto, queueFaceIndex } = await import("./lib/face-auto-index.js");
+                queueFaceIndex(store, photo, faceServiceEnv());
+                sendJson(res, 200, { photo: publicPhoto(photo), faceIndex: "queued" });
                 return;
               }
               if (req.method === "PATCH") {
