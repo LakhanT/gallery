@@ -1,0 +1,41 @@
+# STAGING durable face queue consumer — not production.
+# Deploy:
+#   npx wrangler deploy -c wrangler.face-consumer.staging.toml
+#
+# Secrets:
+#   npx wrangler secret put FACE_SERVICE_URL -c wrangler.face-consumer.staging.toml
+#   npx wrangler secret put FACE_SERVICE_API_KEY -c wrangler.face-consumer.staging.toml
+#
+# Fill database_id after staging D1 create.
+
+name = "gallery-face-queue-consumer-staging"
+main = "workers/face-queue-consumer.js"
+compatibility_date = "2024-09-23"
+
+[vars]
+PUBLIC_ORIGIN = "https://gallery-staging.pages.dev"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gallery-db-staging"
+database_id = "e42f69a2-fe52-4cd9-b534-3b74e56d5759"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "gallery-photos-staging"
+
+[[queues.consumers]]
+queue = "gallery-face-search-staging"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 5
+max_concurrency = 4
+dead_letter_queue = "gallery-face-search-staging-dlq"
+
+[[queues.consumers]]
+queue = "gallery-face-index-staging"
+max_batch_size = 3
+max_batch_timeout = 10
+max_retries = 5
+max_concurrency = 1
+dead_letter_queue = "gallery-face-index-staging-dlq"

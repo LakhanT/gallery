@@ -1,0 +1,27 @@
+# STAGING Cloudflare Pages config — do NOT use for production gallery-752.pages.dev
+# Deploy:
+#   npm run build
+#   npx wrangler pages deploy dist --project-name gallery-staging --branch main
+#
+# Fill database_id after: npx wrangler d1 create gallery-db-staging
+
+name = "gallery-staging"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gallery-db-staging"
+database_id = "e42f69a2-fe52-4cd9-b534-3b74e56d5759"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "gallery-photos-staging"
+
+[[queues.producers]]
+binding = "FACE_SEARCH_QUEUE"
+queue = "gallery-face-search-staging"
+
+[[queues.producers]]
+binding = "FACE_INDEX_QUEUE"
+queue = "gallery-face-index-staging"
