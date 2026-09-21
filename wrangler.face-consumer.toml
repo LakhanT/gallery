@@ -1,0 +1,41 @@
+# Durable face-search / face-index queue consumer Worker.
+# Pages Functions can PRODUCE to Queues but cannot CONSUME — this Worker drains them.
+#
+# Deploy (after queues exist + D1 migration 0011 applied on target):
+#   npx wrangler deploy -c wrangler.face-consumer.toml
+#
+# Secrets (same values as Pages):
+#   npx wrangler secret put FACE_SERVICE_URL -c wrangler.face-consumer.toml
+#   npx wrangler secret put FACE_SERVICE_API_KEY -c wrangler.face-consumer.toml
+
+name = "gallery-face-queue-consumer"
+main = "workers/face-queue-consumer.js"
+compatibility_date = "2024-09-23"
+
+[vars]
+PUBLIC_ORIGIN = "https://gallery-752.pages.dev"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gallery-db"
+database_id = "4391e57e-29e8-4250-b57c-776f3b2ce15a"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "gallery-photos"
+
+[[queues.consumers]]
+queue = "gallery-face-search"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 5
+max_concurrency = 4
+dead_letter_queue = "gallery-face-search-dlq"
+
+[[queues.consumers]]
+queue = "gallery-face-index"
+max_batch_size = 3
+max_batch_timeout = 10
+max_retries = 5
+max_concurrency = 1
+dead_letter_queue = "gallery-face-index-dlq"

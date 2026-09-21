@@ -10,11 +10,16 @@ pages_build_output_dir = "dist"
 # Optional: FACE_SERVICE_TIMEOUT_MS (default 60000)
 # Do not commit plaintext secrets. Never put FACE_SERVICE_API_KEY in frontend code.
 #
-# Face-service process env (same machine / VM):
-#   FACE_SERVICE_API_KEY, FACE_MATCH_SIMILARITY, FACE_UNCERTAIN_SIMILARITY,
-#   FACE_MIN_DETECTION_SCORE, FACE_MIN_QUALITY_SCORE, FACE_PROVIDERS
+# Durable face jobs:
+#   Pages PRODUCES to FACE_SEARCH_QUEUE / FACE_INDEX_QUEUE (this file).
+#   A separate Worker CONSUMES — see wrangler.face-consumer.toml
+#   Create queues once (do not duplicate):
+#     npx wrangler queues create gallery-face-search
+#     npx wrangler queues create gallery-face-search-dlq
+#     npx wrangler queues create gallery-face-index
+#     npx wrangler queues create gallery-face-index-dlq
 #
-# Local Vite: set FACE_SERVICE_URL + FACE_SERVICE_API_KEY in the shell before npm run dev.
+# Local Vite: no queue bindings → in-memory dispatcher (see lib/face-search-job.js).
 
 [[d1_databases]]
 binding = "DB"
@@ -24,3 +29,12 @@ database_id = "4391e57e-29e8-4250-b57c-776f3b2ce15a"
 [[r2_buckets]]
 binding = "PHOTOS"
 bucket_name = "gallery-photos"
+
+# Pages can produce to Queues; consumers must be a Worker (wrangler.face-consumer.toml).
+[[queues.producers]]
+binding = "FACE_SEARCH_QUEUE"
+queue = "gallery-face-search"
+
+[[queues.producers]]
+binding = "FACE_INDEX_QUEUE"
+queue = "gallery-face-index"

@@ -53,6 +53,8 @@ export async function onRequestPost(context) {
     }
 
     const bytes = await file.arrayBuffer();
+    // Production: durable Cloudflare Queue via FACE_SEARCH_QUEUE binding.
+    // Local: schedule/waitUntil in-memory fallback inside acceptFaceSearchJob.
     const schedule = (fn) => {
       if (typeof context.waitUntil === "function") {
         context.waitUntil(

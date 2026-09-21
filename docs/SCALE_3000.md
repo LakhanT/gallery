@@ -11,25 +11,39 @@
 ```text
 Browser (gallery browse NEVER waits on buffalo_l)
    │
+   │  POST /api/faces/search  → 202 { jobId, status: queued }
+   │  GET  /api/faces/search/:jobId  (poll + backoff + jitter)
    ▼
-Cloudflare Pages + Functions + D1 + R2
-   │
-   │  POST /api/faces/search  → 202 jobId (async)
-   │  GET  /api/faces/search/:jobId (poll)
+Cloudflare Pages + Functions
+   │  rate limit + MAX_SEARCH_QUEUE
+   │  D1 face_search_jobs
+   │  R2 tmp/face-search/{jobId}  (private, deleted after)
    ▼
-Search Gateway (rate limit + MAX_SEARCH_QUEUE)
-   │  ephemeral selfie in R2 tmp (deleted after)
+Cloudflare Queue: gallery-face-search  (+ DLQ)
+   │  message = { jobId, objectKey, attempt, version }  ONLY
    ▼
-Face workers (Render N×)  MAX_SEARCH_CONCURRENCY=2
-   │ 512-d query
+Durable consumer Worker (wrangler.face-consumer.toml)
+   │  atomic D1 claim → Render /detect-embed → match → complete
+   ▼
+Render face workers × N   MAX_SEARCH_CONCURRENCY=2
+   │  buffalo_l → 512-d ArcFace
    ▼
 D1 cosine match (full scan today — measure before replacing)
    │
    ▼
-Job result (photo IDs only — no embeddings to browser)
+Job result (photo IDs only — no embeddings / no selfie to browser)
 ```
 
-See `docs/ASYNC_FACE_SEARCH.md` for the async job design and Cloudflare Queues recommendation.
+**LOCAL vs PRODUCTION dispatch**
+
+| Mode | Mechanism |
+|------|-----------|
+| Local Vite | In-memory `gatewayPending` / `setImmediate` / `waitUntil` (no queue bindings) |
+| Staging / Production | Cloudflare Queues producer (Pages) + durable consumer Worker |
+
+Index uploads use `gallery-face-index` (+ DLQ) the same way; search has higher consumer concurrency.
+
+See `docs/ASYNC_FACE_SEARCH.md` and `docs/DURABLE_QUEUES.md`.
 
 Gallery open / thumbnails / R2 media remain independent of face workers.
 
