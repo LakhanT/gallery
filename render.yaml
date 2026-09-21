@@ -1,0 +1,34 @@
+# Render Blueprint — Abbsolute Legends Gallery face service
+# Docs: docs/FACE_SERVICE_RENDER.md
+#
+# Deploy from GitHub repo LakhanT/gallery (root).
+# Docker context: face-service/
+#
+# After deploy: set FACE_SERVICE_API_KEY in the Render dashboard (do not commit it).
+# Do NOT wire Cloudflare Pages secrets until /health passes on Render.
+
+services:
+  - type: web
+    name: gallery-face-service
+    runtime: docker
+    plan: standard
+    region: oregon
+    dockerfilePath: ./face-service/Dockerfile
+    dockerContext: ./face-service
+    # Unauthenticated process probe only — /health stays API-key protected
+    healthCheckPath: /livez
+    # buffalo_l model download + first inference can exceed default windows
+    # (adjust in dashboard if needed)
+    envVars:
+      - key: FACE_PROVIDERS
+        value: CPUExecutionProvider
+      - key: FACE_MATCH_SIMILARITY
+        value: "0.42"
+      - key: FACE_UNCERTAIN_SIMILARITY
+        value: "0.32"
+      - key: FACE_MIN_DETECTION_SCORE
+        value: "0.50"
+      - key: FACE_MIN_QUALITY_SCORE
+        value: "0.25"
+      - key: FACE_SERVICE_API_KEY
+        sync: false
