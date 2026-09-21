@@ -386,11 +386,26 @@ reindexRunAll?.addEventListener("click", async () => {
   reindexStopFlag = false;
   if (reindexStop) reindexStop.hidden = false;
   try {
+    // Prefer durable server queue (Worker consumer + face service). Fallback: browser-driven batches.
+    const queued = await api("/api/admin/reindex", {
+      method: "POST",
+      body: JSON.stringify({ enqueueAll: true, resetFailed: true }),
+    }).catch(() => null);
+
+    if (queued?.dispatch === "cloudflare-queue") {
+      showToast(
+        queued.enqueued > 0
+          ? `Queued ${queued.enqueued} photos on the server. Refresh to watch progress.`
+          : queued.message || "Nothing left to queue."
+      );
+      paintReindex(queued);
+      return;
+    }
+
     let guard = 0;
     while (!reindexStopFlag && guard < 5000) {
       guard += 1;
       const data = await runReindexBatch(8);
-      // Stop when pending hits 0 — failed photos do not block completion
       if ((data.progress?.pending ?? 0) <= 0) break;
       if (!data.processed) break;
       showToast(

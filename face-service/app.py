@@ -70,14 +70,22 @@ def require_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key
 
 @app.on_event("startup")
 def startup() -> None:
-    t0 = time.perf_counter()
-    try:
-        get_engine()
-        metrics.observe("model_init_ms", (time.perf_counter() - t0) * 1000)
-        metrics.set_gauge("model_ready", 1)
-    except Exception as exc:  # noqa: BLE001
-        metrics.set_gauge("model_ready", 0)
-        log.exception("Model warm-up failed (will retry on first request): %s", exc)
+    """Bind HTTP immediately for Render health checks; warm buffalo_l in background."""
+    import threading
+
+    def _warm() -> None:
+        t0 = time.perf_counter()
+        try:
+            get_engine()
+            metrics.observe("model_init_ms", (time.perf_counter() - t0) * 1000)
+            metrics.set_gauge("model_ready", 1)
+            log.info("buffalo_l ready in %.1fs", time.perf_counter() - t0)
+        except Exception as exc:  # noqa: BLE001
+            metrics.set_gauge("model_ready", 0)
+            log.exception("Model warm-up failed (will retry on first request): %s", exc)
+
+    metrics.set_gauge("model_ready", 0)
+    threading.Thread(target=_warm, name="buffalo-warmup", daemon=True).start()
 
 
 @app.get("/livez")

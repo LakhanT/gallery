@@ -1,6 +1,10 @@
 import { createStore, errorResponse, jsonResponse } from "../../../lib/store.js";
 import { faceServiceHealth } from "../../../lib/face-client.js";
 import { FACE_EMBEDDING_VERSION, FACE_MODEL, getFaceThresholds } from "../../../lib/face-match.js";
+import {
+  enqueueFaceIndexMessage,
+  hasDurableIndexQueue,
+} from "../../../lib/face-queue.js";
 
 async function readJson(request) {
   try {
@@ -28,6 +32,7 @@ export async function onRequestGet(context) {
       thresholds: getFaceThresholds(),
       model: FACE_MODEL,
       version: FACE_EMBEDDING_VERSION,
+      durableIndexQueue: hasDurableIndexQueue(context.env),
     });
   } catch (error) {
     return errorResponse(error, error.status || 400);
@@ -35,8 +40,9 @@ export async function onRequestGet(context) {
 }
 
 /**
- * POST body: { limit?, photoId?, retryFailed? }
- * Processes next batch of photos needing buffalo_l index (or a single photoId).
+ * POST body: { limit?, photoId?, retryFailed?, enqueueAll? }
+ * - enqueueAll: publish pending photoIds to FACE_INDEX_QUEUE (server consumer drains)
+ * - otherwise: processes a small batch inline (admin/debug)
  * Failed photos do not block pending → 0; use retryFailed to reset failures.
  */
 export async function onRequestPost(context) {
@@ -51,6 +57,52 @@ export async function onRequestPost(context) {
       return jsonResponse({
         retried: true,
         reset: reset.reset,
+        progress,
+        model: FACE_MODEL,
+        version: FACE_EMBEDDING_VERSION,
+      });
+    }
+
+    // Server-side path: enqueue identifiers only; Worker consumer + face service do the work.
+    if (body.enqueueAll) {
+      if (!hasDurableIndexQueue(context.env)) {
+        throw Object.assign(
+          new Error(
+            "Durable index queue is not bound. Deploy Pages with FACE_INDEX_QUEUE, then retry."
+          ),
+          { status: 503 }
+        );
+      }
+      if (body.resetFailed) {
+        await store.retryFailedFaceIndexes();
+      }
+      const targets = await store.listPhotosNeedingReindex(10_000, {
+        includeFailed: Boolean(body.includeFailed),
+        includeQueued: false,
+      });
+      let enqueued = 0;
+      for (const photo of targets) {
+        try {
+          await store.setFaceIndexStatus(photo.id, {
+            status: "queued",
+            retryCount: 0,
+            lastError: null,
+            faceCount: 0,
+          });
+        } catch {
+          /* status table optional */
+        }
+        await enqueueFaceIndexMessage(context.env, { photoId: photo.id, attempt: 1 });
+        enqueued += 1;
+      }
+      const progress = await store.getReindexProgress();
+      return jsonResponse({
+        enqueued,
+        dispatch: "cloudflare-queue",
+        message:
+          enqueued > 0
+            ? `Queued ${enqueued} photos for buffalo_l indexing. The queue consumer drains them on the server.`
+            : "Nothing to queue — pending is already empty or already queued.",
         progress,
         model: FACE_MODEL,
         version: FACE_EMBEDDING_VERSION,
